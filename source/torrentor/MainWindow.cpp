@@ -187,13 +187,13 @@ void MainWindow::CreateMenuBar()
 	//
 	//
 	//menu->AddItem(new BMenuItem("New Torrent", NULL));
-	menu->AddItem(new BMenuItem("Open Torrent", new BMessage(MENU_FILE_OPEN_TORRENT)));
-	menu->AddItem(new BMenuItem("Opem From Magnet", new BMessage(MENU_FILE_OPEN_TORRENT_URL)));
+	menu->AddItem(new BMenuItem("Open Torrent", new BMessage(MENU_FILE_OPEN_TORRENT), 'O'));
+	menu->AddItem(new BMenuItem("Open From Magnet", new BMessage(MENU_FILE_OPEN_TORRENT_URL), 'M'));
 	menu->AddItem(new BSeparatorItem);
 	menu->AddItem(new BMenuItem("Start All Torrents", NULL));
 	menu->AddItem(new BMenuItem("Pause All Torrent", NULL));
 	menu->AddItem(new BSeparatorItem);
-	menu->AddItem(new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED)));
+	menu->AddItem(new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q'));
 	
 	//menu->AddItem(new BMenuItem("Open" B_UTF8_ELLIPSIS, new BMessage(MENU_FILE_OPEN), 'O'));
 	
@@ -227,7 +227,7 @@ void MainWindow::CreateMenuBar()
 	//
 	//
 	menu = new BMenu("Torrent");
-	menu->AddItem(new BMenuItem("Inspect", new BMessage(MENU_TORRENT_INSPECT)));
+	menu->AddItem(new BMenuItem("Inspect", new BMessage(MENU_TORRENT_INSPECT), 'I'));
 	menu->AddItem(new BMenuItem("Open download folder", new BMessage(MENU_TORRENT_OPEN_DOWNLOAD)));
 	menu->AddItem(new BSeparatorItem);
 	menu->AddItem(new BMenuItem("Remove", new BMessage(MENU_TORRENT_REMOVE)));
