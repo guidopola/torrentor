@@ -45,5 +45,6 @@ resource app_version {
 
 resource file_types message 
 {
-	"types" = "application/x-bittorrent"
+	"types" = "application/x-bittorrent",
+	"types" = "application/x-vnd.Be.URL.magnet"
 };

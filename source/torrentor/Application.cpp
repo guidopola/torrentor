@@ -174,6 +174,16 @@ void TorrentorApp::RefsReceived(BMessage* message)
 
 }
 
+void TorrentorApp::ArgvReceived(int32 argc, char** argv)
+{
+	for (int32 i = 1; i < argc; i++) {
+		BString arg(argv[i]);
+		if (arg.FindFirst("magnet:") == 0) {
+			LoadTorrentFromMagnet(arg);
+		}
+	}
+}
+
 void TorrentorApp::Pulse()
 {
 	if( fMainWindow != NULL )
@@ -426,16 +436,18 @@ void TorrentorApp::OpenTorrentResult(BMessage* message)
 
 void TorrentorApp::LoadTorrentFromMagnet(BMessage* message)
 {
-	BString MagnetUrl;
-	
-	
-	if( message->FindString("URL", &MagnetUrl) != B_OK )
+	BString magnetUrl;
+	if( message->FindString("URL", &magnetUrl) != B_OK )
 		return;
-
 	
+	LoadTorrentFromMagnet(magnetUrl);
+}
+
+void TorrentorApp::LoadTorrentFromMagnet(BString magnetUrl)
+{
 	TorrentObject* torrentObject = new TorrentObject();
 		
-	if( !torrentObject->LoadFromMagnet(Session(), MagnetUrl) )
+	if( !torrentObject->LoadFromMagnet(Session(), magnetUrl) )
 	{
 		delete torrentObject;
 		return;

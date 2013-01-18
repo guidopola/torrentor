@@ -56,6 +56,7 @@ public:
 	//
 	void MessageReceived(BMessage* message);
 	void RefsReceived(BMessage* message);
+	void ArgvReceived(int32 argc, char** argv);
 	void Pulse();
 	void ReadyToRun();
 	
@@ -64,6 +65,7 @@ protected:
 	void LoadTorrentList();
 	void LoadTorrentFromFiles(const BStringList& TorrentPathList);
 	void LoadTorrentFromMagnet(BMessage* message);
+	void LoadTorrentFromMagnet(BString magnetUrl);
 	void OpenTorrentResult(BMessage* message);
 	void OpenMagnetLinkWindow();
 	void CheckForUpdates();
