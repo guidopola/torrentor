@@ -26,6 +26,7 @@
 #ifndef TORRENTOR_OPEN_MAGNET_WINDOW_H
 #define TORRENTOR_OPEN_MAGNET_WINDOW_H
 
+class BString;
 class BTextControl;
 
 class OpenMagnetWindow : public BWindow
@@ -37,6 +38,13 @@ public:
 protected:
 	void OnMagnetOpenRequest();
 private:
+
+	/**
+	 * Retreives a magnet link that's been copied to the system clipboard.
+	 * @returns The magnet link or an empty string if there was none.
+	 */
+	BString GetMagnetFromClipboard();
+
 	BTextControl* fLinkText;
 };
 

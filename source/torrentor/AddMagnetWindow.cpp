@@ -1,8 +1,10 @@
 #include <Application.h>
 #include <Button.h>
+#include <Clipboard.h>
 #include <ControlLook.h>
 #include <GroupLayout.h>
 #include <GroupLayoutBuilder.h>
+#include <String.h>
 #include <StringView.h>
 #include <TextControl.h>
 #include <Window.h>
@@ -18,8 +20,8 @@ enum
 OpenMagnetWindow::OpenMagnetWindow()
 	:	BWindow(BRect(),
 				"Open Magnet Link", 
-				B_MODAL_WINDOW_LOOK,
-				B_MODAL_APP_WINDOW_FEEL, 
+				B_TITLED_WINDOW_LOOK,
+				B_NORMAL_WINDOW_FEEL, 
 				B_AUTO_UPDATE_SIZE_LIMITS |
 				B_ASYNCHRONOUS_CONTROLS |
 				B_NOT_ZOOMABLE |
@@ -38,7 +40,7 @@ OpenMagnetWindow::OpenMagnetWindow()
 	BButton* fOpenButton 	= new BButton("", "Open", new BMessage(MSG_MAGNET_OPEN));
 	BStringView* fLinkLabel	= new BStringView("", "Link:");
 	fLinkText = new BTextControl("", "", NULL);
-	//fLinkText->SetExplicitMinSize(BSize(200, 20));
+	fLinkText->SetExplicitMinSize(BSize(400, 20));
 	
 	//
 	//
@@ -56,8 +58,33 @@ OpenMagnetWindow::OpenMagnetWindow()
 		.SetInsets(spacing, spacing, spacing, spacing)
 	);
 	
+	fLinkText->MakeFocus();
+	fLinkText->SetText(GetMagnetFromClipboard());
+	fOpenButton->MakeDefault(true);
 	CenterOnScreen();
 	Run();
+}
+
+BString OpenMagnetWindow::GetMagnetFromClipboard() {
+	const char *text = NULL;
+	ssize_t numBytes;
+	status_t status;
+	BMessage *clip = (BMessage *)NULL;
+	if (be_clipboard->Lock()) {
+		if ((clip = be_clipboard->Data())) {
+			status = clip->FindData("text/plain", B_MIME_TYPE, (const void **)&text, &numBytes);
+		}
+		be_clipboard->Unlock();
+	}
+	
+	if (status == B_OK) {
+		BString link(text);
+		if (link.FindFirst("magnet:") == 0) {
+			return link;
+		}
+	}
+	
+	return BString();
 }
 
 void OpenMagnetWindow::MessageReceived(BMessage* message)
