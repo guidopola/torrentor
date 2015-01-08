@@ -88,13 +88,10 @@ Application Torrentor :
 	
 	libtransmission.a
 	
-	#
-	# Find a better way to resolve libs.
-	#
-	/boot/common/lib/libcrypto.so
-	/boot/common/lib/libssl.so
-	/boot/common/lib/libcurl.so
-	/boot/common/lib/libevent.so
+	crypto
+	ssl
+	curl
+	event
 	libnatpmp.a
 	libminiupnp.a
 	libdht.a
