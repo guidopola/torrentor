@@ -14,5 +14,5 @@ To build Torrentor you need some libs which are optional packages.
 
 Build
 -------
-Be sure you're using gcc4, you can set this by running ```$ setgcc gcc4```
+Be sure you're using gcc4, you can set this by running ```$ setarch x86```
 To build torrentor, browse to the root source directory and run ```$ jam```
