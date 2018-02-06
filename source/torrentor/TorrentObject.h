@@ -78,7 +78,7 @@ public:
 	//
 	// Return true if the torrent file is a folder.
 	//
-	bool IsFolder() const { return Info()->isMultifile; }
+	bool IsFolder() const { return Info()->isFolder; }
 	
 	//
 	//

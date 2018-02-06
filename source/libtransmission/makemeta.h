@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -48,7 +45,7 @@ typedef struct tr_metainfo_builder
     uint32_t                    fileCount;
     uint32_t                    pieceSize;
     uint32_t                    pieceCount;
-    int                         isSingleFile;
+    bool                        isFolder;
 
     /**
     ***  These are set inside tr_makeMetaInfo ()
@@ -60,7 +57,7 @@ typedef struct tr_metainfo_builder
     int                trackerCount;
     char *             comment;
     char *             outputFile;
-    int                isPrivate;
+    bool               isPrivate;
 
     /**
     ***  These are set inside tr_makeMetaInfo () so the client
@@ -70,8 +67,8 @@ typedef struct tr_metainfo_builder
     **/
 
     uint32_t                   pieceIndex;
-    int                        abortFlag;
-    int                        isDone;
+    bool                       abortFlag;
+    bool                       isDone;
     tr_metainfo_builder_err    result;
 
     /* file in use when result was set to _IO_READ or _IO_WRITE,
@@ -91,9 +88,18 @@ typedef struct tr_metainfo_builder
 tr_metainfo_builder;
 
 
-tr_metainfo_builder*tr_metaInfoBuilderCreate (const char * topFile);
+tr_metainfo_builder * tr_metaInfoBuilderCreate (const char * topFile);
 
-void                tr_metaInfoBuilderFree (tr_metainfo_builder*);
+/**
+ * Call this before tr_makeMetaInfo() to override the builder.pieceSize
+ * and builder.pieceCount values that were set by tr_metainfoBuilderCreate()
+ *
+ * @return false if the piece size isn't valid; eg, isn't a power of two.
+ */
+bool tr_metaInfoBuilderSetPieceSize (tr_metainfo_builder * builder,
+                                     uint32_t              bytes);
+
+void tr_metaInfoBuilderFree (tr_metainfo_builder*);
 
 /**
  * @brief create a new .torrent file
@@ -117,7 +123,7 @@ void tr_makeMetaInfo (tr_metainfo_builder *   builder,
                       const tr_tracker_info * trackers,
                       int                     trackerCount,
                       const char *            comment,
-                      int                     isPrivate);
+                      bool                    isPrivate);
 
 
 #ifdef __cplusplus

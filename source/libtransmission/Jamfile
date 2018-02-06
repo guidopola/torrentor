@@ -1,9 +1,10 @@
 SubDir PROJECT_TOP source libtransmission ;
 
-local defines = [ FDefines __TRANSMISSION__=1 
+local defines = [ FDefines __TRANSMISSION__=1
+				  CRYPTO_USE_OPENSSL=1
 				  WITH_UTP=1
-				  HAVE_ZLIB=1 
-				  HAVE_MINIUPNP_16=1 
+				  HAVE_ZLIB=1
+				  HAVE_MINIUPNP_16=1
 				  B_USE_POSITIVE_POSIX_ERRORS=1 ] ;
 
 
@@ -16,58 +17,72 @@ SubDirCcFlags $(defines) ;
 SubDirSysHdrs $(PROJECT_TOP) source third_party ;
 SubDirSysHdrs $(PROJECT_TOP) source third_party libnatpmp ;
 SubDirSysHdrs $(PROJECT_TOP) source third_party libutp ;
+SubDirSysHdrs $(PROJECT_TOP) source third_party libb64 ;
 
 
 
 StaticLibrary libtransmission :
-    announcer.c 
-    announcer-http.c 
-    announcer-udp.c 
-    bandwidth.c 
-    bencode.c 
-    bitfield.c 
-    blocklist.c 
-    cache.c 
-    clients.c 
+    announcer.c
+    announcer-http.c
+    announcer-udp.c
+    bandwidth.c
+    bitfield.c
+    blocklist.c
+    cache.c
+    clients.c
     completion.c 
-    ConvertUTF.c 
-    crypto.c 
-    fdlimit.c 
-    handshake.c 
-    history.c 
-    inout.c 
-    json.c 
-    jsonsl.c 
+    ConvertUTF.c
+    crypto.c
+    crypto-utils.c
+    crypto-utils-fallback.c
+    error.c
+    fdlimit.c
+    file.c
+    handshake.c
+    history.c
+    inout.c
     list.c 
-    magnet.c 
-    makemeta.c 
-    metainfo.c 
-    natpmp.c 
-    net.c 
-    peer-io.c 
-    peer-mgr.c 
-    peer-msgs.c 
-    platform.c 
-    port-forwarding.c 
-    ptrarray.c 
-    resume.c 
-    rpcimpl.c 
-    rpc-server.c 
-    session.c 
-    stats.c 
-    torrent.c 
-    torrent-ctor.c 
-    torrent-magnet.c 
-    tr-dht.c 
-    tr-lpd.c 
-    tr-udp.c 
-    tr-utp.c 
-    tr-getopt.c 
-    trevent.c 
-    upnp.c 
-    utils.c 
-    verify.c 
-    web.c 
-    webseed.c 
+    log.c
+    magnet.c
+    makemeta.c
+    metainfo.c
+    natpmp.c
+    net.c
+    peer-io.c
+    peer-mgr.c
+    peer-msgs.c
+    platform.c
+    platform-quota.c
+    port-forwarding.c
+    ptrarray.c
+    quark.c
+    resume.c
+    rpcimpl.c
+    rpc-server.c
+    session.c
+    stats.c
+    torrent.c
+    torrent-ctor.c
+    torrent-magnet.c
+    tr-dht.c
+    tr-lpd.c
+    tr-udp.c
+    tr-utp.c
+    tr-getopt.c
+    trevent.c
+    upnp.c
+    utils.c
+    variant.c
+    variant-benc.c
+    variant-json.c
+    verify.c
+    watchdir.c
+    watchdir-generic.c
+    web.c
+    webseed.c
     wildmat.c
+    # Haiku TODO
+    #watchdir-haiku.c
+    file-posix.c
+    crypto-utils-openssl.c
 ;

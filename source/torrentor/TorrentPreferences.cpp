@@ -31,20 +31,20 @@
 TorrentPreferences::TorrentPreferences() 
 	:	fSession(NULL)
 {
-	tr_bencInitDict(&fHandle, 2);
+	tr_variantInitDict(&fHandle, 2);
 	
 	//
 	//
 	//
-	tr_bencDictAddBool(&fHandle, TR_PREFS_KEY_AUTO_ADD_TORRENT_ENABLED, false);
- 	tr_bencDictAddStr(&fHandle, TR_PREFS_KEY_AUTO_ADD_TORRENT_FOLDER, TR_DEFAULT_AUTO_ADD_TORRENT_FOLDER);
+	tr_variantDictAddBool(&fHandle, TR_KEY_watch_dir_enabled, false);
+ 	//tr_variantDictAddStr(&fHandle, TR_PREFS_KEY_AUTO_ADD_TORRENT_FOLDER, TR_DEFAULT_AUTO_ADD_TORRENT_FOLDER);
 	
 	tr_sessionLoadSettings(&fHandle, tr_getDefaultConfigDir("Torrentor"), "Torrentor");
 }
 
 TorrentPreferences::~TorrentPreferences()
 {
-	tr_bencFree(&fHandle);
+	tr_variantFree(&fHandle);
 }
 
 
@@ -65,7 +65,7 @@ bool TorrentPreferences::AutoAddTorrentEnabled()
 {
 	bool result = false;
 	
-	if (tr_bencDictFindBool(&fHandle, TR_PREFS_KEY_AUTO_ADD_TORRENT_ENABLED, &result))
+	if (tr_variantDictFindBool(&fHandle, TR_KEY_watch_dir_enabled, &result))
 		return result;
 	
 	return false;
@@ -75,7 +75,7 @@ BString	TorrentPreferences::AutoAddTorrentPath()
 {
 	const char* result = B_EMPTY_STRING;
 	
-	tr_bencDictFindStr(&fHandle, TR_PREFS_KEY_AUTO_ADD_TORRENT_FOLDER, &result);
+	tr_variantDictFindStr(&fHandle, TR_KEY_watch_dir, &result, NULL);
 	
 	return result;
 }

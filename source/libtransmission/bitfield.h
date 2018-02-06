@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2008-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -98,19 +95,6 @@ tr_bitfieldHasNone (const tr_bitfield * b)
   return b->bit_count ? (b->true_count == 0) : b->have_none_hint;
 }
 
-static inline bool
-tr_bitfieldHas (const tr_bitfield * b, size_t n)
-{
-  if (tr_bitfieldHasAll (b))
-    return true;
-
-  if (tr_bitfieldHasNone (b))
-    return false;
-
-  if (n>>3u >= b->alloc_count)
-    return false;
-
-  return (b->bits[n>>3u] << (n & 7u) & 0x80) != 0;
-}
+bool tr_bitfieldHas (const tr_bitfield * b, size_t n);
 
 #endif

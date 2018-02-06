@@ -7,6 +7,7 @@ SubInclude PROJECT_TOP source third_party libutp ;
 SubInclude PROJECT_TOP source third_party dht ;
 SubInclude PROJECT_TOP source third_party miniupnp ;
 SubInclude PROJECT_TOP source third_party libnatpmp ;
+SubInclude PROJECT_TOP source third_party libb64 ;
 SubInclude PROJECT_TOP source libtransmission ;
 
 #

@@ -109,8 +109,8 @@ TorrentorApp::TorrentorApp()
  	//
  	//
  	//
-	fTorrentSession = tr_sessionInit("torrentor", tr_getDefaultConfigDir("Torrentor"), false, fTorrentPreferences->Handle());	
-	char * str 		= tr_bencToStr( fTorrentPreferences->Handle(), TR_FMT_JSON, NULL );
+	fTorrentSession = tr_sessionInit(tr_getDefaultConfigDir("Torrentor"), false, fTorrentPreferences->Handle());	
+	char * str 		= tr_variantToStr( fTorrentPreferences->Handle(), TR_VARIANT_FMT_JSON_LEAN, NULL );
 
 
 	fTorrentPreferences->SetSession(fTorrentSession);

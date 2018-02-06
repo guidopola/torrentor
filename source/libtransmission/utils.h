@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2009-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -14,6 +11,7 @@
 #define TR_UTILS_H 1
 
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stddef.h> /* size_t */
 #include <time.h> /* time_t */
 
@@ -24,6 +22,12 @@ extern "C" {
 /***
 ****
 ***/
+
+struct evbuffer;
+struct event;
+struct timeval;
+
+struct tr_error;
 
 /**
  * @addtogroup utils Utilities
@@ -71,6 +75,36 @@ extern "C" {
 #endif
 
 
+#ifndef __has_feature
+ #define __has_feature(x) 0
+#endif
+#ifndef __has_extension
+ #define __has_extension __has_feature
+#endif
+
+#ifdef __UCLIBC__
+ #define TR_UCLIBC_CHECK_VERSION(major, minor, micro) \
+   (__UCLIBC_MAJOR__ > (major) || \
+    (__UCLIBC_MAJOR__ == (major) && __UCLIBC_MINOR__ > (minor)) || \
+    (__UCLIBC_MAJOR__ == (major) && __UCLIBC_MINOR__ == (minor) && \
+       __UCLIBC_SUBLEVEL__ >= (micro)))
+#else
+ #define TR_UCLIBC_CHECK_VERSION(major, minor, micro) 0
+#endif
+
+/**
+ * @def TR_STATIC_ASSERT
+ * @brief This helper allows to perform static checks at compile time
+ */
+#if defined (static_assert)
+ #define TR_STATIC_ASSERT static_assert
+#elif __has_feature (c_static_assert) || __has_extension (c_static_assert)
+ #define TR_STATIC_ASSERT _Static_assert
+#else
+ #define TR_STATIC_ASSERT(x, msg) { typedef char __tr_static_check__[(x) ? 1 : -1] UNUSED; }
+#endif
+
+
 /***
 ****
 ***/
@@ -78,7 +112,7 @@ extern "C" {
 const char * tr_strip_positional_args (const char * fmt);
 
 #if !defined (_)
- #if defined (HAVE_LIBINTL_H) && !defined (SYS_DARWIN)
+ #if defined (HAVE_LIBINTL_H) && !defined (__APPLE__)
   #include <libintl.h>
   #define _(a) gettext (a)
  #else
@@ -88,7 +122,7 @@ const char * tr_strip_positional_args (const char * fmt);
 
 /* #define DISABLE_GETTEXT */
 #ifndef DISABLE_GETTEXT
- #if defined (WIN32) || defined (TR_LIGHTWEIGHT)
+ #if defined (_WIN32) || defined (TR_LIGHTWEIGHT)
    #define DISABLE_GETTEXT
  #endif
 #endif
@@ -101,126 +135,20 @@ const char * tr_strip_positional_args (const char * fmt);
 *****
 ****/
 
-#define TR_MAX_MSG_LOG 10000
-
-extern tr_msg_level __tr_message_level;
-
-static inline tr_msg_level tr_getMessageLevel (void)
-{
-    return __tr_message_level;
-}
-
-static inline bool tr_msgLoggingIsActive (tr_msg_level level)
-{
-    return tr_getMessageLevel () >= level;
-}
-
-void tr_msg (const char * file, int line,
-             tr_msg_level level,
-             const char * torrent,
-             const char * fmt, ...) TR_GNUC_PRINTF (5, 6);
-
-#define tr_nerr(n, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_ERR)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_ERR, n, __VA_ARGS__); \
-    } while (0)
-
-#define tr_ninf(n, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_INF)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_INF, n, __VA_ARGS__); \
-    } while (0)
-
-#define tr_ndbg(n, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_DBG)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_DBG, n, __VA_ARGS__); \
-    } while (0)
-
-#define tr_torerr(tor, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_ERR)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_ERR, tr_torrentName (tor), __VA_ARGS__); \
-    } while (0)
-
-#define tr_torinf(tor, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_INF)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_INF, tr_torrentName (tor), __VA_ARGS__); \
-    } while (0)
-
-#define tr_tordbg(tor, ...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_DBG)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_DBG, tr_torrentName (tor), __VA_ARGS__); \
-    } while (0)
-
-#define tr_err(...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_ERR)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_ERR, NULL, __VA_ARGS__); \
-    } while (0)
-
-#define tr_inf(...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_INF)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_INF, NULL, __VA_ARGS__); \
-    } while (0)
-
-#define tr_dbg(...) \
-    do { \
-        if (tr_msgLoggingIsActive (TR_MSG_DBG)) \
-            tr_msg (__FILE__, __LINE__, TR_MSG_DBG, NULL, __VA_ARGS__); \
-    } while (0)
-
-
-
-void* tr_getLog (void);
-
-/** @brief return true if deep logging has been enabled by the user; false otherwise */
-bool tr_deepLoggingIsActive (void);
-
-void           tr_deepLog (const char * file,
-                           int          line,
-                           const char * name,
-                           const char * fmt,
-                           ...) TR_GNUC_PRINTF (4, 5) TR_GNUC_NONNULL (1,4);
-
-/** @brief set the buffer with the current time formatted for deep logging. */
-char* tr_getLogTimeStr (char * buf, int buflen) TR_GNUC_NONNULL (1);
-
-
 /**
  * @brief Rich Salz's classic implementation of shell-style pattern matching for ?, \, [], and * characters.
  * @return 1 if the pattern matches, 0 if it doesn't, or -1 if an error occured
  */
 bool tr_wildmat (const char * text, const char * pattern) TR_GNUC_NONNULL (1,2);
 
-/** @brief Portability wrapper for basename () that uses the system implementation if available */
-char* tr_basename (const char * path) TR_GNUC_MALLOC;
-
-/** @brief Portability wrapper for dirname () that uses the system implementation if available */
-char* tr_dirname (const char * path) TR_GNUC_MALLOC;
-
-/**
- * Like mkdir, but makes parent directories as needed.
- *
- * @return zero on success, or -1 if an error occurred
- * (in which case errno is set appropriately).
- */
-int tr_mkdirp (const char * path, int permissions) TR_GNUC_NONNULL (1);
-
-/** @brief Portability wrapper for mkdtemp () that uses the system implementation if available */
-char* tr_mkdtemp (char * _template);
-
 
 /**
  * @brief Loads a file and returns its contents.
  * On failure, NULL is returned and errno is set.
  */
-uint8_t* tr_loadFile (const char * filename, size_t * size) TR_GNUC_MALLOC
-                                                             TR_GNUC_NONNULL (1);
+uint8_t * tr_loadFile (const char       * filename,
+                       size_t           * size,
+                       struct tr_error ** error) TR_GNUC_MALLOC TR_GNUC_NONNULL (1);
 
 
 /** @brief build a filename from a series of elements using the
@@ -228,10 +156,11 @@ uint8_t* tr_loadFile (const char * filename, size_t * size) TR_GNUC_MALLOC
 char* tr_buildPath (const char * first_element, ...) TR_GNUC_NULL_TERMINATED
                                                       TR_GNUC_MALLOC;
 
-bool tr_fileExists (const char * filename, time_t * mtime);
-
-
-struct event;
+/**
+ * @brief Get available disk space (in bytes) for the specified folder.
+ * @return zero or positive integer on success, -1 in case of error.
+ */
+int64_t tr_getDirFreeSpace (const char * path);
 
 /**
  * @brief Convenience wrapper around timer_add () to have a timer wake up in a number of seconds and microseconds
@@ -261,8 +190,44 @@ void tr_wait_msec (long int delay_milliseconds);
  * @param str the string to make a clean copy of
  * @param len the length of the string to copy. If -1, the entire string is used.
  */
-char* tr_utf8clean (const char * str, int len) TR_GNUC_MALLOC;
+char* tr_utf8clean (const char * str, size_t len) TR_GNUC_MALLOC;
 
+#ifdef _WIN32
+
+char    * tr_win32_native_to_utf8    (const wchar_t * text,
+                                      int             text_size);
+wchar_t * tr_win32_utf8_to_native    (const char    * text,
+                                      int             text_size);
+wchar_t * tr_win32_utf8_to_native_ex (const char    * text,
+                                      int             text_size,
+                                      int             extra_chars_before,
+                                      int             extra_chars_after,
+                                      int           * real_result_size);
+char    * tr_win32_format_message    (uint32_t        code);
+
+void      tr_win32_make_args_utf8    (int    * argc,
+                                      char *** argv);
+
+int       tr_main_win32              (int     argc,
+                                      char ** argv,
+                                      int   (*real_main) (int, char **));
+
+#define tr_main(...) \
+  main_impl (__VA_ARGS__); \
+  int \
+  main (int    argc, \
+        char * argv[]) \
+  { \
+    return tr_main_win32 (argc, argv, &main_impl); \
+  } \
+  int \
+  main_impl (__VA_ARGS__)
+
+#else
+
+#define tr_main main
+
+#endif
 
 /***
 ****
@@ -287,6 +252,9 @@ void* tr_malloc (size_t size);
 /** @brief Portability wrapper around calloc () in which `0' is a safe argument */
 void* tr_malloc0 (size_t size);
 
+/** @brief Portability wrapper around reallocf () in which `0' is a safe argument */
+void * tr_realloc (void * p, size_t size);
+
 /** @brief Portability wrapper around free () in which `NULL' is a safe argument */
 void tr_free (void * p);
 
@@ -305,7 +273,7 @@ void* tr_memdup (const void * src, size_t byteCount);
   ((struct_type *) tr_malloc0 (sizeof (struct_type) * ((size_t)(n_structs))))
 
 #define tr_renew(struct_type, mem, n_structs)    \
-  ((struct_type *) realloc ((mem), sizeof (struct_type) * ((size_t)(n_structs))))
+  ((struct_type *) tr_realloc ((mem), sizeof (struct_type) * ((size_t)(n_structs))))
 
 void* tr_valloc (size_t bufLen);
 
@@ -315,7 +283,7 @@ void* tr_valloc (size_t bufLen);
  * @param len length of the substring to copy. if a length less than zero is passed in, strlen (len) is used
  * @return a newly-allocated copy of `in' that can be freed with tr_free ()
  */
-char* tr_strndup (const void * in, int len) TR_GNUC_MALLOC;
+char* tr_strndup (const void * in, size_t len) TR_GNUC_MALLOC;
 
 /**
  * @brief make a newly-allocated copy of a string
@@ -329,11 +297,8 @@ char* tr_strdup (const void * in);
  */
 int tr_strcmp0 (const char * str1, const char * str2);
 
-
-
-struct evbuffer;
-
-char* evbuffer_free_to_str (struct evbuffer * buf);
+char* evbuffer_free_to_str (struct evbuffer * buf,
+                            size_t          * result_len);
 
 /** @brief similar to bsearch () but returns the index of the lower bound */
 int tr_lowerBound (const void * key,
@@ -343,6 +308,9 @@ int tr_lowerBound (const void * key,
                    int     (* compar)(const void* key, const void* arrayMember),
                    bool       * exact_match) TR_GNUC_HOT TR_GNUC_NONNULL (1,5,6);
 
+/** @brief moves the best k items to the first slots in the array. O(n) */
+void tr_quickfindFirstK (void * base, size_t nmemb, size_t size,
+                         int (*compar)(const void *, const void *), size_t k);
 
 /**
  * @brief sprintf () a string into a newly-allocated buffer large enough to hold it
@@ -350,22 +318,8 @@ int tr_lowerBound (const void * key,
  */
 char* tr_strdup_printf (const char * fmt, ...) TR_GNUC_PRINTF (1, 2)
                                                 TR_GNUC_MALLOC;
-
-/**
- * @brief Translate a block of bytes into base64
- * @return a newly-allocated string that can be freed with tr_free ()
- */
-char* tr_base64_encode (const void * input,
-                        int          inlen,
-                        int        * outlen) TR_GNUC_MALLOC;
-
-/**
- * @brief Translate a block of bytes from base64 into raw form
- * @return a newly-allocated string that can be freed with tr_free ()
- */
-char* tr_base64_decode (const void * input,
-                        int          inlen,
-                        int        * outlen) TR_GNUC_MALLOC;
+char * tr_strdup_vprintf (const char * fmt,
+                          va_list      args) TR_GNUC_MALLOC;
 
 /** @brief Portability wrapper for strlcpy () that uses the system implementation if available */
 size_t tr_strlcpy (char * dst, const void * src, size_t siz);
@@ -399,23 +353,22 @@ char* tr_strsep (char ** str, const char * delim);
 
 int compareInt (const void * va, const void * vb);
 
-void tr_sha1_to_hex (char * out, const uint8_t * sha1) TR_GNUC_NONNULL (1,2);
-
-void tr_hex_to_sha1 (uint8_t * out, const char * hex) TR_GNUC_NONNULL (1,2);
+void tr_binary_to_hex (const void * input, char * output, size_t byte_length) TR_GNUC_NONNULL (1,2);
+void tr_hex_to_binary (const char * input, void * output, size_t byte_length) TR_GNUC_NONNULL (1,2);
 
 /** @brief convenience function to determine if an address is an IP address (IPv4 or IPv6) */
 bool tr_addressIsIP (const char * address);
 
-/** @brief return true if the url is a http or https url that Transmission understands */
-bool tr_urlIsValidTracker (const char * url) TR_GNUC_NONNULL (1);
+/** @brief return true if the url is a http or https or UDP url that Transmission understands */
+bool tr_urlIsValidTracker (const char * url);
 
-/** @brief return true if the url is a [ http, https, ftp, ftps ] url that Transmission understands */
-bool tr_urlIsValid (const char * url, int url_len) TR_GNUC_NONNULL (1);
+/** @brief return true if the url is a [ http, https, ftp, sftp ] url that Transmission understands */
+bool tr_urlIsValid (const char * url, size_t url_len);
 
 /** @brief parse a URL into its component parts
-    @return zero on success or an error number if an error occurred */
-int  tr_urlParse (const char * url,
-                  int          url_len,
+    @return True on success or false if an error occurred */
+bool tr_urlParse (const char * url,
+                  size_t       url_len,
                   char      ** setme_scheme,
                   char      ** setme_host,
                   int        * setme_port,
@@ -435,8 +388,8 @@ double tr_getRatio (uint64_t numerator, uint64_t denominator);
  * For example, "5-8" will return [ 5, 6, 7, 8 ] and setmeCount will be 4.
  */
 int* tr_parseNumberRange (const char * str,
-                          int str_len,
-                          int * setmeCount) TR_GNUC_MALLOC TR_GNUC_NONNULL (1);
+                          size_t       str_len,
+                          int        * setmeCount) TR_GNUC_MALLOC TR_GNUC_NONNULL (1);
 
 
 /**
@@ -469,16 +422,17 @@ char* tr_strratio (char * buf, size_t buflen, double ratio, const char * infinit
 /** @brief Portability wrapper for localtime_r () that uses the system implementation if available */
 struct tm * tr_localtime_r (const time_t *_clock, struct tm *_result);
 
+/** @brief Portability wrapper for gettimeofday (), with tz argument dropped */
+int tr_gettimeofday (struct timeval * tv);
+
 
 /**
  * @brief move a file
- * @return 0 on success; otherwise, return -1 and set errno
+ * @return `True` on success, `false` otherwise (with `error` set accordingly).
  */
-int tr_moveFile (const char * oldpath, const char * newpath,
-                 bool * renamed) TR_GNUC_NONNULL (1,2);
-
-/** @brief Test to see if the two filenames point to the same file. */
-bool tr_is_same_file (const char * filename1, const char * filename2);
+bool tr_moveFile (const char       * oldpath,
+                  const char       * newpath,
+                  struct tr_error ** error) TR_GNUC_NONNULL (1,2);
 
 /** @brief convenience function to remove an item from an array */
 void tr_removeElementFromArray (void         * array,
@@ -507,22 +461,6 @@ static inline time_t tr_time (void) { return __tr_current_time; }
 
 /** @brief Private libtransmission function to update tr_time ()'s counter */
 static inline void tr_timeUpdate (time_t now) { __tr_current_time = now; }
-
-#ifdef WIN32
- #include <windef.h> /* MAX_PATH */
- #define TR_PATH_MAX (MAX_PATH + 1)
-#else
- #include <limits.h> /* PATH_MAX */
- #ifdef PATH_MAX
-  #define TR_PATH_MAX PATH_MAX
- #else
-  #define TR_PATH_MAX 4096
- #endif
-#endif
-
-/** @brief Portability wrapper for realpath () that uses the system implementation if available.
-    @param resolved_path should be TR_PATH_MAX or larger */
-char* tr_realpath (const char *path, char * resolved_path);
 
 /** @brief Portability wrapper for htonll () that uses the system implementation if available */
 uint64_t tr_htonll (uint64_t);
@@ -561,7 +499,28 @@ static inline char* tr_formatter_mem_MB (char * buf, double MBps, size_t buflen)
 /* format a file size from bytes into a user-readable string. */
 char* tr_formatter_size_B (char * buf, int64_t bytes, size_t buflen);
 
-void tr_formatter_get_units (struct tr_benc * dict);
+void tr_formatter_get_units (void * dict);
+
+/***
+****
+***/
+
+/** @brief Check if environment variable exists. */
+bool   tr_env_key_exists (const char * key);
+
+/** @brief Get environment variable value as int. */
+int    tr_env_get_int    (const char * key,
+                          int          default_value);
+
+/** @brief Get environment variable value as string (should be freed afterwards). */
+char * tr_env_get_string (const char * key,
+                          const char * default_value);
+
+/***
+****
+***/
+
+void tr_net_init (void);
 
 /***
 ****

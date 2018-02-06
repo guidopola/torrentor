@@ -1,21 +1,19 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
 
 #include "transmission.h"
 #include "session.h"
-#include "bencode.h"
+#include "log.h"
 #include "platform.h" /* tr_sessionGetConfigDir () */
 #include "stats.h"
 #include "utils.h" /* tr_buildPath */
+#include "variant.h"
 
 /***
 ****
@@ -47,18 +45,18 @@ getFilename (const tr_session * session)
 static void
 loadCumulativeStats (const tr_session * session, tr_session_stats * setme)
 {
-  tr_benc top;
+  tr_variant top;
   char * filename;
   bool loaded = false;
 
   filename = getFilename (session);
-  loaded = !tr_bencLoadFile (&top, TR_FMT_JSON, filename);
+  loaded = tr_variantFromFile (&top, TR_VARIANT_FMT_JSON, filename, NULL);
   tr_free (filename);
 
   if (!loaded)
     {
       filename = getOldFilename (session);
-      loaded = !tr_bencLoadFile (&top, TR_FMT_BENC, filename);
+      loaded = tr_variantFromFile (&top, TR_VARIANT_FMT_BENC, filename, NULL);
       tr_free (filename);
     }
 
@@ -66,18 +64,18 @@ loadCumulativeStats (const tr_session * session, tr_session_stats * setme)
     {
       int64_t i;
 
-      if (tr_bencDictFindInt (&top, "downloaded-bytes", &i))
+      if (tr_variantDictFindInt (&top, TR_KEY_downloaded_bytes, &i))
         setme->downloadedBytes = (uint64_t) i;
-      if (tr_bencDictFindInt (&top, "files-added", &i))
+      if (tr_variantDictFindInt (&top, TR_KEY_files_added, &i))
         setme->filesAdded = (uint64_t) i;
-      if (tr_bencDictFindInt (&top, "seconds-active", &i))
+      if (tr_variantDictFindInt (&top, TR_KEY_seconds_active, &i))
         setme->secondsActive = (uint64_t) i;
-      if (tr_bencDictFindInt (&top, "session-count", &i))
+      if (tr_variantDictFindInt (&top, TR_KEY_session_count, &i))
         setme->sessionCount = (uint64_t) i;
-      if (tr_bencDictFindInt (&top, "uploaded-bytes", &i))
+      if (tr_variantDictFindInt (&top, TR_KEY_uploaded_bytes, &i))
         setme->uploadedBytes = (uint64_t) i;
 
-      tr_bencFree (&top);
+      tr_variantFree (&top);
     }
 }
 
@@ -85,21 +83,21 @@ static void
 saveCumulativeStats (const tr_session * session, const tr_session_stats * s)
 {
   char * filename;
-  tr_benc top;
+  tr_variant top;
 
-  tr_bencInitDict (&top, 5);
-  tr_bencDictAddInt (&top, "downloaded-bytes", s->downloadedBytes);
-  tr_bencDictAddInt (&top, "files-added",      s->filesAdded);
-  tr_bencDictAddInt (&top, "seconds-active",   s->secondsActive);
-  tr_bencDictAddInt (&top, "session-count",    s->sessionCount);
-  tr_bencDictAddInt (&top, "uploaded-bytes",   s->uploadedBytes);
+  tr_variantInitDict (&top, 5);
+  tr_variantDictAddInt (&top, TR_KEY_downloaded_bytes, s->downloadedBytes);
+  tr_variantDictAddInt (&top, TR_KEY_files_added,      s->filesAdded);
+  tr_variantDictAddInt (&top, TR_KEY_seconds_active,   s->secondsActive);
+  tr_variantDictAddInt (&top, TR_KEY_session_count,    s->sessionCount);
+  tr_variantDictAddInt (&top, TR_KEY_uploaded_bytes,   s->uploadedBytes);
 
   filename = getFilename (session);
-  tr_deepLog (__FILE__, __LINE__, NULL, "Saving stats to \"%s\"", filename);
-  tr_bencToFile (&top, TR_FMT_JSON, filename);
+  tr_logAddDeep (__FILE__, __LINE__, NULL, "Saving stats to \"%s\"", filename);
+  tr_variantToFile (&top, TR_VARIANT_FMT_JSON, filename);
 
   tr_free (filename);
-  tr_bencFree (&top);
+  tr_variantFree (&top);
 }
 
 /***

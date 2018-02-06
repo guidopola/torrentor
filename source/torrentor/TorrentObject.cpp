@@ -35,11 +35,11 @@
 
 extern const char* B_DIRECTORY_MIME_TYPE;
 
-int _TorrentRemoveFileHandler(const char* filename)
+bool _TorrentRemoveFileHandler(const char* filename, tr_error ** error)
 {
 	BEntry entry(filename);
 	entry.Remove();
-	return 0;
+	return false;
 }
 
 
@@ -71,7 +71,7 @@ bool TorrentObject::LoadFromPath(const tr_session* Session, const char* TorrentP
 		
 	//
 	//
-	fTorrentHandle = tr_torrentNew(ctor, NULL);
+	fTorrentHandle = tr_torrentNew(ctor, NULL, NULL);
 	
 	tr_ctorFree(ctor);
 	
@@ -99,7 +99,7 @@ bool TorrentObject::LoadFromMagnet(const tr_session* Session, const char* Magnet
 		
 	//
 	//
-	fTorrentHandle = tr_torrentNew(ctor, NULL);
+	fTorrentHandle = tr_torrentNew(ctor, NULL, NULL);
 	tr_ctorFree(ctor);
 	
 	if( fTorrentHandle == NULL )

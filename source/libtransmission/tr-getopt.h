@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2008-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -53,11 +50,11 @@ enum
  * @brief similar to getopt ()
  * @return TR_GETOPT_DONE, TR_GETOPT_ERR, TR_GETOPT_UNK, or the matching tr_option's `val' field
  */
-int  tr_getopt (const char       * summary,
-                int                argc,
-                const char      ** argv,
-                const tr_option  * opts,
-                const char      ** setme_optarg);
+int  tr_getopt (const char          * summary,
+                int                   argc,
+                const char * const  * argv,
+                const tr_option     * opts,
+                const char         ** setme_optarg);
 
 /** @brief prints the `Usage' help section to stdout */
 void tr_getopt_usage (const char       * appName,

@@ -26,7 +26,7 @@
 #ifndef TORRENTOR_TORRENT_PREFERENCES_H
 #define TORRENTOR_TORRENT_PREFERENCES_H
 
-struct tr_benc;
+struct tr_variant;
 struct tr_session;
 
 class TorrentPreferences
@@ -73,10 +73,10 @@ public:
 	void	SetEncryptionMode(tr_encryption_mode mode);
 	
 	void SetSession(tr_session* session) { fSession = session; }
-	tr_benc*	Handle() { return &fHandle; }
+	tr_variant*	Handle() { return &fHandle; }
 private:
 	tr_session*	fSession;
-	tr_benc		fHandle;
+	tr_variant	fHandle;
 };
 
 

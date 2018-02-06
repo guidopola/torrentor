@@ -28,9 +28,10 @@ THE SOFTWARE.
 #include <libutp/utp.h>
 
 #include "transmission.h"
+#include "log.h"
 #include "net.h"
 #include "session.h"
-#include "crypto.h" /* tr_cryptoWeakRandInt () */
+#include "crypto-utils.h" /* tr_rand_int_weak () */
 #include "peer-mgr.h"
 #include "tr-utp.h"
 #include "utils.h"
@@ -39,8 +40,8 @@ THE SOFTWARE.
 
 #define dbgmsg(...) \
     do { \
-        if (tr_deepLoggingIsActive ()) \
-            tr_deepLog (__FILE__, __LINE__, MY_NAME, __VA_ARGS__); \
+        if (tr_logGetDeepEnabled ()) \
+            tr_logAddDeep (__FILE__, __LINE__, MY_NAME, __VA_ARGS__); \
     } while (0)
 
 #ifndef WITH_UTP
@@ -48,7 +49,7 @@ THE SOFTWARE.
 void
 UTP_Close (struct UTPSocket * socket)
 {
-    tr_nerr (MY_NAME, "UTP_Close (%p) was called.", socket);
+    tr_logAddNamedError (MY_NAME, "UTP_Close (%p) was called.", socket);
     dbgmsg ("UTP_Close (%p) was called.", socket);
     assert (0); /* FIXME: this is too much for the long term, but probably needed in the short term */
 }
@@ -56,7 +57,7 @@ UTP_Close (struct UTPSocket * socket)
 void
 UTP_RBDrained (struct UTPSocket *socket)
 {
-    tr_nerr (MY_NAME, "UTP_RBDrained (%p) was called.", socket);
+    tr_logAddNamedError (MY_NAME, "UTP_RBDrained (%p) was called.", socket);
     dbgmsg ("UTP_RBDrained (%p) was called.", socket);
     assert (0); /* FIXME: this is too much for the long term, but probably needed in the short term */
 }
@@ -64,7 +65,7 @@ UTP_RBDrained (struct UTPSocket *socket)
 bool
 UTP_Write (struct UTPSocket *socket, size_t count)
 {
-    tr_nerr (MY_NAME, "UTP_RBDrained (%p, %zu) was called.", socket, count);
+    tr_logAddNamedError (MY_NAME, "UTP_RBDrained (%p, %zu) was called.", socket, count);
     dbgmsg ("UTP_RBDrained (%p, %zu) was called.", socket, count);
     assert (0); /* FIXME: this is too much for the long term, but probably needed in the short term */
     return false;
@@ -115,12 +116,12 @@ incoming (void *closure, struct UTPSocket *s)
     UTP_GetPeerName (s, from, &fromlen);
     if (!tr_address_from_sockaddr_storage (&addr, &port, &from_storage))
     {
-        tr_nerr ("UTP", "Unknown socket family");
+        tr_logAddNamedError ("UTP", "Unknown socket family");
         UTP_Close (s);
         return;
     }
 
-    tr_peerMgrAddIncoming (ss->peerMgr, &addr, port, -1, s);
+    tr_peerMgrAddIncoming (ss->peerMgr, &addr, port, TR_BAD_SOCKET, s);
 }
 
 void
@@ -129,10 +130,10 @@ tr_utpSendTo (void *closure, const unsigned char *buf, size_t buflen,
 {
     tr_session *ss = closure;
 
-    if (to->sa_family == AF_INET && ss->udp_socket)
-        sendto (ss->udp_socket, buf, buflen, 0, to, tolen);
-    else if (to->sa_family == AF_INET6 && ss->udp_socket)
-        sendto (ss->udp6_socket, buf, buflen, 0, to, tolen);
+    if (to->sa_family == AF_INET && ss->udp_socket != TR_BAD_SOCKET)
+        sendto (ss->udp_socket, (const void *) buf, buflen, 0, to, tolen);
+    else if (to->sa_family == AF_INET6 && ss->udp6_socket != TR_BAD_SOCKET)
+        sendto (ss->udp6_socket, (const void *) buf, buflen, 0, to, tolen);
 }
 
 static void
@@ -142,7 +143,7 @@ reset_timer (tr_session *ss)
     int usec;
     if (tr_sessionIsUTPEnabled (ss)) {
         sec = 0;
-        usec = UTP_INTERVAL_US / 2 + tr_cryptoWeakRandInt (UTP_INTERVAL_US);
+        usec = UTP_INTERVAL_US / 2 + tr_rand_int_weak (UTP_INTERVAL_US);
     } else {
         /* If somebody has disabled uTP, then we still want to run
            UTP_CheckTimeouts, in order to let closed sockets finish
@@ -150,13 +151,13 @@ reset_timer (tr_session *ss)
            interested in that happening in a timely manner, we might as
            well use a large timeout. */
         sec = 2;
-        usec = tr_cryptoWeakRandInt (1000000);
+        usec = tr_rand_int_weak (1000000);
     }
     tr_timerAdd (utp_timer, sec, usec);
 }
 
 static void
-timer_callback (int s UNUSED, short type UNUSED, void *closure)
+timer_callback (evutil_socket_t s UNUSED, short type UNUSED, void *closure)
 {
     tr_session *ss = closure;
     UTP_CheckTimeouts ();

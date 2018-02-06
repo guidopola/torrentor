@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2010-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -17,9 +14,11 @@
 #include "transmission.h"
 #include "cache.h"
 #include "inout.h"
+#include "log.h"
 #include "peer-common.h" /* MAX_BLOCK_SIZE */
 #include "ptrarray.h"
 #include "torrent.h"
+#include "trevent.h"
 #include "utils.h"
 
 #define MY_NAME "Cache"
@@ -27,8 +26,8 @@
 #define dbgmsg(...) \
   do \
     { \
-      if (tr_deepLoggingIsActive ()) \
-        tr_deepLog (__FILE__, __LINE__, MY_NAME, __VA_ARGS__); \
+      if (tr_logGetDeepEnabled ()) \
+        tr_logAddDeep (__FILE__, __LINE__, MY_NAME, __VA_ARGS__); \
     } \
   while (0)
 
@@ -73,7 +72,7 @@ struct run_info
   time_t last_block_time;
   bool is_multi_piece;
   bool is_piece_done;
-  unsigned len;
+  unsigned int len;
 };
 
 
@@ -83,7 +82,7 @@ getBlockRun (const tr_cache * cache, int pos, struct run_info * info)
 {
   int i;
   const int n = tr_ptrArraySize (&cache->blocks);
-  const struct cache_block ** blocks = (const struct cache_block**) tr_ptrArrayBase (&cache->blocks);
+  const struct cache_block * const * blocks = (const struct cache_block* const *) tr_ptrArrayBase (&cache->blocks);
   const struct cache_block * ref = blocks[pos];
   tr_block_index_t block = ref->block;
 
@@ -103,8 +102,8 @@ getBlockRun (const tr_cache * cache, int pos, struct run_info * info)
     {
       const struct cache_block * b = blocks[i-1];
       info->last_block_time = b->time;
-      info->is_piece_done = tr_cpPieceIsComplete (&b->tor->completion, b->piece);
-      info->is_multi_piece = b->piece != blocks[pos]->piece ? true : false;
+      info->is_piece_done = tr_torrentPieceIsComplete (b->tor, b->piece);
+      info->is_multi_piece = b->piece != blocks[pos]->piece;
       info->len = i - pos;
       info->pos = pos;
     }
@@ -259,7 +258,7 @@ tr_cacheSetLimit (tr_cache * cache, int64_t max_bytes)
   cache->max_blocks = getMaxBlocks (max_bytes);
 
   tr_formatter_mem_B (buf, cache->max_bytes, sizeof (buf));
-  tr_ndbg (MY_NAME, "Maximum cache size set to %s (%d blocks)", buf, cache->max_blocks);
+  tr_logAddNamedDbg (MY_NAME, "Maximum cache size set to %s (%d blocks)", buf, cache->max_blocks);
 
   return cacheTrim (cache);
 }
@@ -331,6 +330,8 @@ tr_cacheWriteBlock (tr_cache         * cache,
                     struct evbuffer  * writeme)
 {
   struct cache_block * cb = findBlock (cache, torrent, piece, offset);
+
+  assert (tr_amInEventThread (torrent->session));
 
   if (cb == NULL)
     {
@@ -452,7 +453,7 @@ tr_cacheFlushFile (tr_cache * cache, tr_torrent * torrent, tr_file_index_t i)
       err = flushContiguous (cache, pos, getBlockRun (cache, pos, NULL));
     }
 
-    return err;
+  return err;
 }
 
 int

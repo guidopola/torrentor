@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2012-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -17,6 +14,7 @@
 #ifndef TR_TORRENT_MAGNET_H
 #define TR_TORRENT_MAGNET_H 1
 
+#include <inttypes.h>
 #include <time.h>
 
 enum
@@ -25,13 +23,13 @@ enum
     METADATA_PIECE_SIZE = (1024 * 16)
 };
 
-void* tr_torrentGetMetadataPiece (tr_torrent * tor, int piece, int * len);
+void* tr_torrentGetMetadataPiece (tr_torrent * tor, int piece, size_t * len);
 
 void tr_torrentSetMetadataPiece (tr_torrent * tor, int piece, const void * data, int len);
 
 bool tr_torrentGetNextMetadataRequest (tr_torrent * tor, time_t now, int * setme);
 
-void tr_torrentSetMetadataSizeHint (tr_torrent * tor, int metadata_size);
+bool tr_torrentSetMetadataSizeHint (tr_torrent * tor, int64_t metadata_size);
 
 double tr_torrentGetMetadataPercent (const tr_torrent * tor);
 

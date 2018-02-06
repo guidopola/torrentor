@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -57,17 +54,17 @@ tr_encryption_type;
 
 
 typedef ReadState (*tr_can_read_cb)(struct tr_peerIo * io,
-                                        void             * user_data,
-                                        size_t           * setme_piece_byte_count);
+                                    void             * user_data,
+                                    size_t           * setme_piece_byte_count);
 
-typedef void    (*tr_did_write_cb)(struct tr_peerIo * io,
-                                        size_t             bytesWritten,
-                                        int                wasPieceData,
-                                        void             * userData);
+typedef void (*tr_did_write_cb)(struct tr_peerIo * io,
+                                size_t             bytesWritten,
+                                bool               wasPieceData,
+                                void             * userData);
 
-typedef void    (*tr_net_error_cb)(struct tr_peerIo * io,
-                                        short              what,
-                                        void             * userData);
+typedef void (*tr_net_error_cb)(struct tr_peerIo * io,
+                                short              what,
+                                void             * userData);
 
 typedef struct tr_peerIo
 {
@@ -89,8 +86,8 @@ typedef struct tr_peerIo
     bool                  isSeed;
 
     tr_port               port;
-    int                   socket;
-    struct UTPSocket      *utp_socket;
+    tr_socket_t           socket;
+    struct UTPSocket    * utp_socket;
 
     int                   refCount;
 
@@ -135,16 +132,16 @@ tr_peerIo*  tr_peerIoNewIncoming (tr_session              * session,
                                   struct tr_bandwidth     * parent,
                                   const struct tr_address * addr,
                                   tr_port                   port,
-                                  int                       socket,
+                                  tr_socket_t               socket,
                                   struct UTPSocket *        utp_socket);
 
-void tr_peerIoRefImpl         (const char              * file,
+void tr_peerIoRefImpl            (const char              * file,
                                   int                       line,
                                   tr_peerIo               * io);
 
 #define tr_peerIoRef(io) tr_peerIoRefImpl (__FILE__, __LINE__, (io));
 
-void tr_peerIoUnrefImpl       (const char              * file,
+void tr_peerIoUnrefImpl          (const char              * file,
                                   int                       line,
                                   tr_peerIo               * io);
 
@@ -220,7 +217,7 @@ const struct tr_address * tr_peerIoGetAddress (const tr_peerIo * io,
 
 const uint8_t*       tr_peerIoGetTorrentHash (tr_peerIo * io);
 
-int                  tr_peerIoHasTorrentHash (const tr_peerIo * io);
+bool                 tr_peerIoHasTorrentHash (const tr_peerIo * io);
 
 void                 tr_peerIoSetTorrentHash (tr_peerIo *     io,
                                               const uint8_t * hash);
@@ -257,26 +254,26 @@ static inline const uint8_t* tr_peerIoGetPeersId (const tr_peerIo * io)
 ***
 **/
 
-void    tr_peerIoSetIOFuncs    (tr_peerIo        * io,
-                                   tr_can_read_cb     readcb,
-                                   tr_did_write_cb    writecb,
-                                   tr_net_error_cb    errcb,
-                                   void             * user_data);
+void    tr_peerIoSetIOFuncs   (tr_peerIo        * io,
+                               tr_can_read_cb     readcb,
+                               tr_did_write_cb    writecb,
+                               tr_net_error_cb    errcb,
+                               void             * user_data);
 
-void    tr_peerIoClear         (tr_peerIo        * io);
+void    tr_peerIoClear        (tr_peerIo        * io);
 
 /**
 ***
 **/
 
 void    tr_peerIoWriteBytes   (tr_peerIo         * io,
-                                  const void        * writeme,
-                                  size_t              writemeLen,
-                                  bool                isPieceData);
+                               const void        * writeme,
+                               size_t              writemeLen,
+                               bool                isPieceData);
 
 void    tr_peerIoWriteBuf     (tr_peerIo         * io,
-                                  struct evbuffer   * buf,
-                                  bool                isPieceData);
+                               struct evbuffer   * buf,
+                               bool                isPieceData);
 
 /**
 ***

@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -21,6 +18,7 @@
 
 #include "transmission.h"
 #include "natpmp_local.h"
+#include "log.h"
 #include "net.h" /* tr_netCloseSocket */
 #include "port-forwarding.h"
 #include "utils.h"
@@ -69,9 +67,9 @@ logVal (const char * func,
     if (ret == NATPMP_TRYAGAIN)
         return;
     if (ret >= 0)
-        tr_ninf (getKey (), _("%s succeeded (%d)"), func, ret);
+        tr_logAddNamedInfo (getKey (), _("%s succeeded (%d)"), func, ret);
     else
-        tr_ndbg (
+        tr_logAddNamedDbg (
              getKey (),
             "%s failed. Natpmp returned %d (%s); errno is %d (%s)",
             func, ret, strnatpmperr (ret), errno, tr_strerror (errno));
@@ -86,7 +84,7 @@ tr_natpmpInit (void)
     nat->state = TR_NATPMP_DISCOVER;
     nat->public_port = 0;
     nat->private_port = 0;
-    nat->natpmp.s = -1; /* socket */
+    nat->natpmp.s = TR_BAD_SOCKET; /* socket */
     return nat;
 }
 
@@ -95,13 +93,12 @@ tr_natpmpClose (tr_natpmp * nat)
 {
     if (nat)
     {
-        if (nat->natpmp.s >= 0)
-            tr_netCloseSocket (nat->natpmp.s);
+        closenatpmp (&nat->natpmp);
         tr_free (nat);
     }
 }
 
-static int
+static bool
 canSendCommand (const struct tr_natpmp * nat)
 {
     return tr_time () >= nat->command_time;
@@ -138,7 +135,7 @@ tr_natpmpPulse (struct tr_natpmp * nat, tr_port private_port, bool is_enabled, t
         {
             char str[128];
             evutil_inet_ntop (AF_INET, &response.pnu.publicaddress.addr, str, sizeof (str));
-            tr_ninf (getKey (), _("Found public address \"%s\""), str);
+            tr_logAddNamedInfo (getKey (), _("Found public address \"%s\""), str);
             nat->state = TR_NATPMP_IDLE;
         }
         else if (val != NATPMP_TRYAGAIN)
@@ -173,7 +170,7 @@ tr_natpmpPulse (struct tr_natpmp * nat, tr_port private_port, bool is_enabled, t
         {
             const int private_port = resp.pnu.newportmapping.privateport;
 
-            tr_ninf (getKey (), _("no longer forwarding port %d"), private_port);
+            tr_logAddNamedInfo (getKey (), _("no longer forwarding port %d"), private_port);
 
             if (nat->private_port == private_port)
             {
@@ -218,7 +215,7 @@ tr_natpmpPulse (struct tr_natpmp * nat, tr_port private_port, bool is_enabled, t
             nat->renew_time = tr_time () + (resp.pnu.newportmapping.lifetime / 2);
             nat->private_port = resp.pnu.newportmapping.privateport;
             nat->public_port = resp.pnu.newportmapping.mappedpublicport;
-            tr_ninf (getKey (), _("Port %d forwarded successfully"), nat->private_port);
+            tr_logAddNamedInfo (getKey (), _("Port %d forwarded successfully"), nat->private_port);
         }
         else if (val != NATPMP_TRYAGAIN)
         {

@@ -34,7 +34,7 @@
 // Include libtransmission headers.
 //
 #include <libtransmission/transmission.h>
-#include <libtransmission/bencode.h>
+#include <libtransmission/variant.h>
 #include <libtransmission/utils.h>
 
 

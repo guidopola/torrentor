@@ -90,9 +90,10 @@ Application Torrentor :
 	libnatpmp.a
 	libminiupnp.a
 	libdht.a
-    libutp.a
-    InterfaceKitEx.a
-    posix_error_mapper
+    	libutp.a
+	libb64.a
+    	InterfaceKitEx.a
+    	posix_error_mapper
     : 
     Torrentor.rdef
 ;

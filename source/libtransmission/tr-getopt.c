@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2008-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -149,8 +146,10 @@ findOption (const tr_option * opts,
     {
         size_t len = o->longName ? strlen (o->longName) : 0;
 
-        if ((matchlen < len) && !memcmp (str, "--", 2)
-          && !memcmp (str + 2, o->longName, len)
+        if ((matchlen < len)
+          && (str[0] == '-')
+          && (str[1] == '-')
+          && !strncmp (str+2, o->longName, len)
           && (str[len + 2] == '\0' || (o->has_arg && str[len + 2] == '=')))
         {
             matchlen = len;
@@ -160,8 +159,9 @@ findOption (const tr_option * opts,
 
         len = o->shortName ? strlen (o->shortName) : 0;
 
-        if ((matchlen < len) && !memcmp (str, "-", 1)
-          && !memcmp (str + 1, o->shortName, len)
+        if ((matchlen < len)
+          && (str[0] == '-')
+          && !strncmp (str+1, o->shortName, len)
           && (str[len + 1] == '\0' || o->has_arg))
         {
             matchlen = len;
@@ -187,11 +187,11 @@ findOption (const tr_option * opts,
 }
 
 int
-tr_getopt (const char *      usage,
-           int               argc,
-           const char **     argv,
-           const tr_option * opts,
-           const char **     setme_optarg)
+tr_getopt (const char         * usage,
+           int                  argc,
+           const char * const  * argv,
+           const tr_option     * opts,
+           const char         ** setme_optarg)
 {
     int               i;
     const char *      arg = NULL;

@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -21,11 +18,8 @@
   #include <miniupnp/upnpcommands.h>
 #endif
 
-#ifdef SYS_DARWIN
-  #define HAVE_MINIUPNP_16 1
-#endif
-
 #include "transmission.h"
+#include "log.h"
 #include "port-forwarding.h"
 #include "session.h"
 #include "upnp.h"
@@ -89,21 +83,26 @@ tr_upnpClose (tr_upnp * handle)
 static struct UPNPDev *
 tr_upnpDiscover (int msec)
 {
-    int err = 0;
-    struct UPNPDev * ret = NULL;
+  struct UPNPDev * ret;
+  bool have_err;
 
-#if defined (HAVE_MINIUPNP_16)
-    ret = upnpDiscover (msec, NULL, NULL, 0, 0, &err);
-#elif defined (HAVE_MINIUPNP_15)
-    ret = upnpDiscover (msec, NULL, NULL, 0);
+#if (MINIUPNPC_API_VERSION >= 8) /* adds ipv6 and error args */
+  int err = UPNPDISCOVER_SUCCESS;
+ #if (MINIUPNPC_API_VERSION >= 14) /* adds ttl */
+  ret = upnpDiscover (msec, NULL, NULL, 0, 0, 2, &err);
+ #else
+  ret = upnpDiscover (msec, NULL, NULL, 0, 0, &err);
+ #endif
+  have_err = err != UPNPDISCOVER_SUCCESS;
 #else
-    ret = UPNPCOMMAND_UNKNOWN_ERROR;
+  ret = upnpDiscover (msec, NULL, NULL, 0);
+  have_err = ret == NULL;
 #endif
 
-    if (ret != UPNPCOMMAND_SUCCESS)
-        tr_ndbg (getKey (), "upnpDiscover failed (errno %d - %s)", err, tr_strerror (err));
+  if (have_err)
+    tr_logAddNamedDbg (getKey (), "upnpDiscover failed (errno %d - %s)", errno, tr_strerror (errno));
 
-    return ret;
+  return ret;
 }
 
 static int
@@ -117,14 +116,42 @@ tr_upnpGetSpecificPortMappingEntry (tr_upnp * handle, const char * proto)
     *intClient = '\0';
     *intPort = '\0';
 
-    tr_snprintf (portStr, sizeof (portStr), "%d", (int)handle->port);
+    tr_snprintf (portStr, sizeof(portStr), "%d", (int)handle->port);
 
-#if defined (HAVE_MINIUPNP_16)
-    err = UPNP_GetSpecificPortMappingEntry (handle->urls.controlURL, handle->data.first.servicetype, portStr, proto, intClient, intPort, NULL, NULL, NULL);
-#elif defined (HAVE_MINIUPNP_15)
-    err = UPNP_GetSpecificPortMappingEntry (handle->urls.controlURL, handle->data.first.servicetype, portStr, proto, intClient, intPort);
+#if (MINIUPNPC_API_VERSION >= 10) /* adds remoteHost arg */
+
+    err = UPNP_GetSpecificPortMappingEntry (handle->urls.controlURL,
+                                            handle->data.first.servicetype,
+                                            portStr,
+                                            proto,
+                                            NULL /*remoteHost*/,
+                                            intClient,
+                                            intPort,
+                                            NULL /*desc*/,
+                                            NULL /*enabled*/,
+                                            NULL /*duration*/);
+
+#elif (MINIUPNPC_API_VERSION >= 8) /* adds desc, enabled and leaseDuration args */
+
+    err = UPNP_GetSpecificPortMappingEntry (handle->urls.controlURL,
+                                            handle->data.first.servicetype,
+                                            portStr,
+                                            proto,
+                                            intClient,
+                                            intPort,
+                                            NULL /*desc*/,
+                                            NULL /*enabled*/,
+                                            NULL /*duration*/);
+
 #else
-    err = UPNPCOMMAND_UNKNOWN_ERROR;
+
+    err = UPNP_GetSpecificPortMappingEntry (handle->urls.controlURL,
+                                            handle->data.first.servicetype,
+                                            portStr,
+                                            proto,
+                                            intClient,
+                                            intPort);
+
 #endif
 
     return err;
@@ -140,16 +167,14 @@ tr_upnpAddPortMapping (const tr_upnp * handle, const char * proto, tr_port port,
 
     tr_snprintf (portStr, sizeof (portStr), "%d", (int)port);
 
-#if defined (HAVE_MINIUPNP_16)
+#if (MINIUPNPC_API_VERSION >= 8)
     err = UPNP_AddPortMapping (handle->urls.controlURL, handle->data.first.servicetype, portStr, portStr, handle->lanaddr, desc, proto, NULL, NULL);
-#elif defined (HAVE_MINIUPNP_15)
-    err = UPNP_AddPortMapping (handle->urls.controlURL, handle->data.first.servicetype, portStr, portStr, handle->lanaddr, desc, proto, NULL);
 #else
-    err = UPNPCOMMAND_UNKNOWN_ERROR;
+    err = UPNP_AddPortMapping (handle->urls.controlURL, handle->data.first.servicetype, portStr, portStr, handle->lanaddr, desc, proto, NULL);
 #endif
 
     if (err)
-        tr_ndbg (getKey (), "%s Port forwarding failed with error %d (errno %d - %s)", proto, err, errno, tr_strerror (errno));
+        tr_logAddNamedDbg (getKey (), "%s Port forwarding failed with error %d (errno %d - %s)", proto, err, errno, tr_strerror (errno));
 
     errno = old_errno;
     return err;
@@ -197,22 +222,22 @@ tr_upnpPulse (tr_upnp * handle,
         if (UPNP_GetValidIGD (devlist, &handle->urls, &handle->data,
                              handle->lanaddr, sizeof (handle->lanaddr)) == UPNP_IGD_VALID_CONNECTED)
         {
-            tr_ninf (getKey (), _(
+            tr_logAddNamedInfo (getKey (), _(
                          "Found Internet Gateway Device \"%s\""),
                      handle->urls.controlURL);
-            tr_ninf (getKey (), _(
+            tr_logAddNamedInfo (getKey (), _(
                          "Local Address is \"%s\""), handle->lanaddr);
             handle->state = TR_UPNP_IDLE;
-            handle->hasDiscovered = 1;
+            handle->hasDiscovered = true;
         }
         else
         {
             handle->state = TR_UPNP_ERR;
-            tr_ndbg (
+            tr_logAddNamedDbg (
                  getKey (), "UPNP_GetValidIGD failed (errno %d - %s)",
                 errno,
                 tr_strerror (errno));
-            tr_ndbg (
+            tr_logAddNamedDbg (
                 getKey (),
                 "If your router supports UPnP, please make sure UPnP is enabled!");
         }
@@ -230,7 +255,7 @@ tr_upnpPulse (tr_upnp * handle,
         if ((tr_upnpGetSpecificPortMappingEntry (handle, "TCP") != UPNPCOMMAND_SUCCESS) ||
           (tr_upnpGetSpecificPortMappingEntry (handle, "UDP") != UPNPCOMMAND_SUCCESS))
         {
-            tr_ninf (getKey (), _("Port %d isn't forwarded"), handle->port);
+            tr_logAddNamedInfo (getKey (), _("Port %d isn't forwarded"), handle->port);
             handle->isMapped = false;
         }
     }
@@ -240,7 +265,7 @@ tr_upnpPulse (tr_upnp * handle,
         tr_upnpDeletePortMapping (handle, "TCP", handle->port);
         tr_upnpDeletePortMapping (handle, "UDP", handle->port);
 
-        tr_ninf (getKey (),
+        tr_logAddNamedInfo (getKey (),
                  _("Stopping port forwarding through \"%s\", service \"%s\""),
                  handle->urls.controlURL, handle->data.first.servicetype);
 
@@ -261,7 +286,7 @@ tr_upnpPulse (tr_upnp * handle,
         int  err_udp = -1;
         errno = 0;
 
-        if (!handle->urls.controlURL || !handle->data.first.servicetype)
+        if (!handle->urls.controlURL)
             handle->isMapped = 0;
         else
         {
@@ -273,19 +298,19 @@ tr_upnpPulse (tr_upnp * handle,
 
             handle->isMapped = !err_tcp | !err_udp;
         }
-        tr_ninf (getKey (),
+        tr_logAddNamedInfo (getKey (),
                  _("Port forwarding through \"%s\", service \"%s\". (local address: %s:%d)"),
                  handle->urls.controlURL, handle->data.first.servicetype,
                  handle->lanaddr, port);
         if (handle->isMapped)
         {
-            tr_ninf (getKey (), "%s", _("Port forwarding successful!"));
+            tr_logAddNamedInfo (getKey (), "%s", _("Port forwarding successful!"));
             handle->port = port;
             handle->state = TR_UPNP_IDLE;
         }
         else
         {
-            tr_ndbg (getKey (), "If your router supports UPnP, please make sure UPnP is enabled!");
+            tr_logAddNamedDbg (getKey (), "If your router supports UPnP, please make sure UPnP is enabled!");
             handle->port = -1;
             handle->state = TR_UPNP_ERR;
         }

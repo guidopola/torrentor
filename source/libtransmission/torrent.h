@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2009-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -29,10 +26,12 @@ struct tr_magnet_info;
 ***  Package-visible ctor API
 **/
 
+void        tr_torrentFree (tr_torrent * tor);
+
 void        tr_ctorSetSave (tr_ctor * ctor,
                             bool      saveMetadataInOurTorrentsDir);
 
-int         tr_ctorGetSave (const tr_ctor * ctor);
+bool        tr_ctorGetSave (const tr_ctor * ctor);
 
 void        tr_ctorInitTorrentPriorities (const tr_ctor * ctor, tr_torrent * tor);
 
@@ -62,8 +61,8 @@ tr_torrent* tr_torrentFindFromHashString (tr_session * session,
 tr_torrent* tr_torrentFindFromObfuscatedHash (tr_session    * session,
                                               const uint8_t * hash);
 
-bool        tr_torrentIsPieceTransferAllowed (const tr_torrent * torrent,
-                                              tr_direction       direction);
+bool        tr_torrentIsPieceTransferAllowed (const tr_torrent  * torrent,
+                                              tr_direction        direction);
 
 
 
@@ -127,7 +126,7 @@ tr_verify_state;
 void             tr_torrentSetVerifyState (tr_torrent      * tor,
                                            tr_verify_state   state);
 
-tr_torrent_activity tr_torrentGetActivity (tr_torrent * tor);
+tr_torrent_activity tr_torrentGetActivity (const tr_torrent * tor);
 
 struct tr_incomplete_metadata;
 
@@ -157,7 +156,9 @@ struct tr_torrent
      * peer_id that was registered by the peer. The peer_id from the tracker
      * and in the handshake are expected to match.
      */
-    uint8_t peer_id[PEER_ID_LEN+1];
+    unsigned char peer_id[PEER_ID_LEN+1];
+
+    time_t peer_id_creation_time;
 
     /* Where the files will be when it's complete */
     char * downloadDir;
@@ -166,13 +167,13 @@ struct tr_torrent
     char * incompleteDir;
 
     /* Length, in bytes, of the "info" dict in the .torrent file. */
-    int infoDictLength;
+    size_t infoDictLength;
 
     /* Offset, in bytes, of the beginning of the "info" dict in the .torrent file.
      *
      * Used by the torrent-magnet code for serving metainfo to peers.
      * This field is lazy-generated and might not be initialized yet. */
-    int infoDictOffset;
+    size_t infoDictOffset;
 
     /* Where the files are now.
      * This pointer will be equal to downloadDir or incompleteDir */
@@ -209,9 +210,9 @@ struct tr_torrent
     uint64_t                   corruptPrev;
 
     uint64_t                   etaDLSpeedCalculatedAt;
-    float                      etaDLSpeed_KBps;
+    unsigned int               etaDLSpeed_Bps;
     uint64_t                   etaULSpeedCalculatedAt;
-    float                      etaULSpeed_KBps;
+    unsigned int               etaULSpeed_Bps;
 
     time_t                     addedDate;
     time_t                     activityDate;
@@ -224,16 +225,16 @@ struct tr_torrent
 
     int                        queuePosition;
 
-    tr_torrent_metadata_func  * metadata_func;
+    tr_torrent_metadata_func    metadata_func;
     void                      * metadata_func_user_data;
 
-    tr_torrent_completeness_func  * completeness_func;
-    void                          *  completeness_func_user_data;
+    tr_torrent_completeness_func    completeness_func;
+    void                          * completeness_func_user_data;
 
-    tr_torrent_ratio_limit_hit_func  * ratio_limit_hit_func;
+    tr_torrent_ratio_limit_hit_func    ratio_limit_hit_func;
     void                             * ratio_limit_hit_func_user_data;
 
-    tr_torrent_idle_limit_hit_func  * idle_limit_hit_func;
+    tr_torrent_idle_limit_hit_func    idle_limit_hit_func;
     void                            * idle_limit_hit_func_user_data;
 
     void * queue_started_user_data;
@@ -245,6 +246,8 @@ struct tr_torrent
     bool                       startAfterVerify;
     bool                       isDirty;
     bool                       isQueued;
+
+    bool                       magnetVerify;
 
     bool                       infoDictOffsetIsCached;
 
@@ -261,7 +264,7 @@ struct tr_torrent
 
     struct tr_bandwidth        bandwidth;
 
-    struct tr_torrent_peers  * torrentPeers;
+    struct tr_swarm          * swarm;
 
     float                      desiredRatio;
     tr_ratiolimit              ratioLimitMode;
@@ -302,17 +305,15 @@ tr_torBlockCountBytes (const tr_torrent * tor, const tr_block_index_t block)
 
 static inline void tr_torrentLock (const tr_torrent * tor)
 {
-    tr_sessionLock (tor->session);
+  tr_sessionLock (tor->session);
 }
-
 static inline bool tr_torrentIsLocked (const tr_torrent * tor)
 {
-    return tr_sessionIsLocked (tor->session);
+  return tr_sessionIsLocked (tor->session);
 }
-
 static inline void tr_torrentUnlock (const tr_torrent * tor)
 {
-    tr_sessionUnlock (tor->session);
+  tr_sessionUnlock (tor->session);
 }
 
 static inline bool
@@ -321,10 +322,16 @@ tr_torrentExists (const tr_session * session, const uint8_t *   torrentHash)
     return tr_torrentFindFromHash ((tr_session*)session, torrentHash) != NULL;
 }
 
+static inline tr_completeness
+tr_torrentGetCompleteness (const tr_torrent * tor)
+{
+    return tor->completeness;
+}
+
 static inline bool
 tr_torrentIsSeed (const tr_torrent * tor)
 {
-    return tor->completeness != TR_LEECH;
+    return tr_torrentGetCompleteness(tor) != TR_LEECH;
 }
 
 static inline bool tr_torrentIsPrivate (const tr_torrent * tor)
@@ -382,9 +389,10 @@ void tr_torrentSetDirty (tr_torrent * tor)
 uint32_t tr_getBlockSize (uint32_t pieceSize);
 
 /**
- * Tell the tr_torrent that one of its files has become complete
+ * Tell the tr_torrent that it's gotten a block
  */
-void tr_torrentFileCompleted (tr_torrent * tor, tr_file_index_t fileNo);
+void tr_torrentGotBlock (tr_torrent * tor, tr_block_index_t blockIndex);
+
 
 
 /**
@@ -434,16 +442,73 @@ uint64_t tr_torrentGetCurrentSizeOnDisk (const tr_torrent * tor);
 
 bool tr_torrentIsStalled (const tr_torrent * tor);
 
+const unsigned char * tr_torrentGetPeerId (tr_torrent * tor);
+
+static inline uint64_t
+tr_torrentGetLeftUntilDone (const tr_torrent * tor)
+{
+  return tr_cpLeftUntilDone (&tor->completion);
+}
+
+static inline bool
+tr_torrentHasAll (const tr_torrent * tor)
+{
+  return tr_cpHasAll (&tor->completion);
+}
+
+static inline bool
+tr_torrentHasNone (const tr_torrent * tor)
+{
+  return tr_cpHasNone (&tor->completion);
+}
+
+static inline bool
+tr_torrentPieceIsComplete (const tr_torrent * tor, tr_piece_index_t i)
+{
+  return tr_cpPieceIsComplete (&tor->completion, i);
+}
+
+static inline bool
+tr_torrentBlockIsComplete (const tr_torrent * tor, tr_block_index_t i)
+{
+  return tr_cpBlockIsComplete (&tor->completion, i);
+}
+
+static inline size_t
+tr_torrentMissingBlocksInPiece (const tr_torrent * tor, tr_piece_index_t i)
+{
+  return tr_cpMissingBlocksInPiece (&tor->completion, i);
+}
+
+static inline size_t
+tr_torrentMissingBytesInPiece (const tr_torrent * tor, tr_piece_index_t i)
+{
+  return tr_cpMissingBytesInPiece (&tor->completion, i);
+}
+
+static inline void *
+tr_torrentCreatePieceBitfield (const tr_torrent * tor, size_t * byte_count)
+{
+  return tr_cpCreatePieceBitfield (&tor->completion, byte_count);
+}
+
+static inline uint64_t
+tr_torrentHaveTotal (const tr_torrent * tor)
+{
+  return tr_cpHaveTotal (&tor->completion);
+}
+
+
 static inline bool
 tr_torrentIsQueued (const tr_torrent * tor)
 {
-    return tor->isQueued;
+  return tor->isQueued;
 }
 
 static inline tr_direction
 tr_torrentGetQueueDirection (const tr_torrent * tor)
 {
-    return tr_torrentIsSeed (tor) ? TR_UP : TR_DOWN;
+  return tr_torrentIsSeed (tor) ? TR_UP : TR_DOWN;
 }
 
 #endif

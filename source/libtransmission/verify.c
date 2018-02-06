@@ -1,29 +1,30 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
+
+#if defined (HAVE_POSIX_FADVISE) && (!defined (_XOPEN_SOURCE) || _XOPEN_SOURCE < 600)
+ #undef _XOPEN_SOURCE
+ #define _XOPEN_SOURCE 600
+#endif
 
 #include <string.h> /* memcmp () */
 #include <stdlib.h> /* free () */
 
 #ifdef HAVE_POSIX_FADVISE
- #define _XOPEN_SOURCE 600
  #include <fcntl.h> /* posix_fadvise () */
 #endif
 
-#include <openssl/sha.h>
-
 #include "transmission.h"
 #include "completion.h"
-#include "fdlimit.h"
+#include "crypto-utils.h"
+#include "file.h"
 #include "list.h"
+#include "log.h"
 #include "platform.h" /* tr_lock () */
 #include "torrent.h"
 #include "utils.h" /* tr_valloc (), tr_free () */
@@ -42,11 +43,11 @@ static bool
 verifyTorrent (tr_torrent * tor, bool * stopFlag)
 {
   time_t end;
-  SHA_CTX sha;
-  int fd = -1;
-  int64_t filePos = 0;
-  bool changed = 0;
-  bool hadPiece = 0;
+  tr_sha1_ctx_t sha;
+  tr_sys_file_t fd = TR_BAD_SYS_FILE;
+  uint64_t filePos = 0;
+  bool changed = false;
+  bool hadPiece = false;
   time_t lastSleptAt = 0;
   uint32_t piecePos = 0;
   tr_file_index_t fileIndex = 0;
@@ -56,26 +57,27 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
   const size_t buflen = 1024 * 128; /* 128 KiB buffer */
   uint8_t * buffer = tr_valloc (buflen);
 
-  SHA1_Init (&sha);
+  sha = tr_sha1_init ();
 
-  tr_tordbg (tor, "%s", "verifying torrent...");
+  tr_logAddTorDbg (tor, "%s", "verifying torrent...");
   tr_torrentSetChecked (tor, 0);
   while (!*stopFlag && (pieceIndex < tor->info.pieceCount))
     {
-      uint32_t leftInPiece;
-      uint32_t bytesThisPass;
+      uint64_t leftInPiece;
+      uint64_t bytesThisPass;
       uint64_t leftInFile;
       const tr_file * file = &tor->info.files[fileIndex];
 
       /* if we're starting a new piece... */
       if (piecePos == 0)
-        hadPiece = tr_cpPieceIsComplete (&tor->completion, pieceIndex);
+        hadPiece = tr_torrentPieceIsComplete (tor, pieceIndex);
 
       /* if we're starting a new file... */
-      if (!filePos && (fd<0) && (fileIndex!=prevFileIndex))
+      if (filePos == 0 && fd == TR_BAD_SYS_FILE && fileIndex != prevFileIndex)
         {
           char * filename = tr_torrentFindFile (tor, fileIndex);
-          fd = filename == NULL ? -1 : tr_open_file_for_scanning (filename);
+          fd = filename == NULL ? TR_BAD_SYS_FILE : tr_sys_file_open (filename,
+               TR_SYS_FILE_READ | TR_SYS_FILE_SEQUENTIAL, 0, NULL);
           tr_free (filename);
           prevFileIndex = fileIndex;
         }
@@ -87,15 +89,15 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
       bytesThisPass = MIN (bytesThisPass, buflen);
 
       /* read a bit */
-      if (fd >= 0)
+      if (fd != TR_BAD_SYS_FILE)
         {
-          const ssize_t numRead = tr_pread (fd, buffer, bytesThisPass, filePos);
-          if (numRead > 0)
+          uint64_t numRead;
+          if (tr_sys_file_read_at (fd, buffer, bytesThisPass, filePos, &numRead, NULL) && numRead > 0)
             {
-              bytesThisPass = (uint32_t)numRead;
-              SHA1_Update (&sha, buffer, bytesThisPass);
+              bytesThisPass = numRead;
+              tr_sha1_update (sha, buffer, bytesThisPass);
 #if defined HAVE_POSIX_FADVISE && defined POSIX_FADV_DONTNEED
-              posix_fadvise (fd, filePos, bytesThisPass, POSIX_FADV_DONTNEED);
+              (void) posix_fadvise (fd, filePos, bytesThisPass, POSIX_FADV_DONTNEED);
 #endif
             }
         }
@@ -113,7 +115,7 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
           bool hasPiece;
           uint8_t hash[SHA_DIGEST_LENGTH];
 
-          SHA1_Final (hash, &sha);
+          tr_sha1_final (sha, hash);
           hasPiece = !memcmp (hash, tor->info.pieces[pieceIndex].hash, SHA_DIGEST_LENGTH);
 
           if (hasPiece || hadPiece)
@@ -134,7 +136,7 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
               tr_wait_msec (MSEC_TO_SLEEP_PER_SECOND_DURING_VERIFY);
             }
 
-          SHA1_Init (&sha);
+          sha = tr_sha1_init ();
           pieceIndex++;
           piecePos = 0;
         }
@@ -142,10 +144,10 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
       /* if we're finishing a file... */
       if (leftInFile == 0)
         {
-          if (fd >= 0)
+          if (fd != TR_BAD_SYS_FILE)
             {
-              tr_close_file (fd);
-              fd = -1;
+              tr_sys_file_close (fd, NULL);
+              fd = TR_BAD_SYS_FILE;
             }
           fileIndex++;
           filePos = 0;
@@ -153,13 +155,14 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
     }
 
   /* cleanup */
-  if (fd >= 0)
-    tr_close_file (fd);
+  if (fd != TR_BAD_SYS_FILE)
+    tr_sys_file_close (fd, NULL);
+  tr_sha1_final (sha, NULL);
   free (buffer);
 
   /* stopwatch */
   end = tr_time ();
-  tr_tordbg (tor, "Verification is done. It took %d seconds to verify %"PRIu64" bytes (%"PRIu64" bytes per second)",
+  tr_logAddTorDbg (tor, "Verification is done. It took %d seconds to verify %"PRIu64" bytes (%"PRIu64" bytes per second)",
              (int)(end-begin), tor->info.totalSize,
              (uint64_t)(tor->info.totalSize/ (1+ (end-begin))));
 
@@ -172,19 +175,11 @@ verifyTorrent (tr_torrent * tor, bool * stopFlag)
 
 struct verify_node
 {
-  tr_torrent *         torrent;
-  tr_verify_done_cb    verify_done_cb;
-  uint64_t             current_size;
+  tr_torrent          * torrent;
+  tr_verify_done_func   callback_func;
+  void                * callback_data;
+  uint64_t              current_size;
 };
-
-static void
-fireCheckDone (tr_torrent * tor, tr_verify_done_cb verify_done_cb)
-{
-  assert (tr_isTorrent (tor));
-
-  if (verify_done_cb)
-    verify_done_cb (tor);
-}
 
 static struct verify_node currentNode;
 static tr_list * verifyList = NULL;
@@ -226,18 +221,17 @@ verifyThreadFunc (void * unused UNUSED)
       tr_free (node);
       tr_lockUnlock (getVerifyLock ());
 
-      tr_torinf (tor, "%s", _("Verifying torrent"));
+      tr_logAddTorInfo (tor, "%s", _("Verifying torrent"));
       tr_torrentSetVerifyState (tor, TR_VERIFY_NOW);
       changed = verifyTorrent (tor, &stopCurrent);
       tr_torrentSetVerifyState (tor, TR_VERIFY_NONE);
       assert (tr_isTorrent (tor));
 
-      if (!stopCurrent)
-        {
-          if (changed)
-            tr_torrentSetDirty (tor);
-          fireCheckDone (tor, currentNode.verify_done_cb);
-        }
+      if (!stopCurrent && changed)
+        tr_torrentSetDirty (tor);
+
+      if (currentNode.callback_func)
+        (*currentNode.callback_func)(tor, stopCurrent, currentNode.callback_data);
     }
 
   verifyThread = NULL;
@@ -265,16 +259,19 @@ compareVerifyByPriorityAndSize (const void * va, const void * vb)
 }
 
 void
-tr_verifyAdd (tr_torrent * tor, tr_verify_done_cb verify_done_cb)
+tr_verifyAdd (tr_torrent           * tor,
+              tr_verify_done_func    callback_func,
+              void                 * callback_data)
 {
   struct verify_node * node;
 
   assert (tr_isTorrent (tor));
-  tr_torinf (tor, "%s", _("Queued for verification"));
+  tr_logAddTorInfo (tor, "%s", _("Queued for verification"));
 
   node = tr_new (struct verify_node, 1);
   node->torrent = tor;
-  node->verify_done_cb = verify_done_cb;
+  node->callback_func = callback_func;
+  node->callback_data = callback_data;
   node->current_size = tr_torrentGetCurrentSizeOnDisk (tor);
 
   tr_lockLock (getVerifyLock ());
@@ -314,8 +311,17 @@ tr_verifyRemove (tr_torrent * tor)
     }
   else
     {
-      tr_free (tr_list_remove (&verifyList, tor, compareVerifyByTorrent));
+      struct verify_node * node = tr_list_remove (&verifyList, tor, compareVerifyByTorrent);
+
       tr_torrentSetVerifyState (tor, TR_VERIFY_NONE);
+
+      if (node != NULL)
+        {
+          if (node->callback_func != NULL)
+            (*node->callback_func)(tor, true, node->callback_data);
+
+          tr_free (node);
+        }
     }
 
   tr_lockUnlock (lock);

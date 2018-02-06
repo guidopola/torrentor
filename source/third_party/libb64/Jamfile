@@ -1,0 +1,22 @@
+SubDir PROJECT_TOP source third_party libb64 ;
+
+local defines = [ FDefines POSIX=1
+				  FDefines B_USE_POSITIVE_POSIX_ERRORS=1 
+				  FDefines ENABLE_STRNATPMPERR=1 ] ;
+
+SubDirSysHdrs $(PROJECT_TOP) source third_party libb64 ;
+
+#
+# To turn off debugging symbols export NDEBUG=1 in the environment
+#
+SubDirC++Flags -Wno-c++0x-compat -fno-exceptions -fno-rtti -ansi $(defines) ;
+
+
+#-----------------------------------------------------------------------------
+# 
+#-----------------------------------------------------------------------------
+
+StaticLibrary libb64 :
+	cdecode.c
+	cencode.c
+;

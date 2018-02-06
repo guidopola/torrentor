@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2010-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -15,9 +12,9 @@
 #include <stdio.h> /* sscanf () */
 
 #include "transmission.h"
-#include "bencode.h"
+#include "crypto-utils.h" /* tr_hex_to_sha1 () */
 #include "magnet.h"
-#include "utils.h"
+#include "variant.h"
 #include "web.h"
 
 /***
@@ -44,10 +41,10 @@ static const int base32Lookup[] =
 static const int base32LookupLen = sizeof (base32Lookup) / sizeof (base32Lookup[0]);
 
 static void
-base32_to_sha1 (uint8_t * out, const char * in, const int inlen)
+base32_to_sha1 (uint8_t * out, const char * in, const size_t inlen)
 {
-  const int outlen = 20;
-  int i, index, offset;
+  const size_t outlen = 20;
+  size_t i, index, offset;
 
   memset (out, 0, 20);
 
@@ -124,26 +121,26 @@ tr_magnetParse (const char * uri)
           const char * delim = strchr (key, '=');
           const char * val = delim == NULL ? NULL : delim + 1;
           const char * next = strchr (delim == NULL ? key : val, '&');
-          int keylen, vallen;
+          size_t keylen, vallen;
 
           if (delim != NULL)
-            keylen = delim - key;
+            keylen = (size_t) (delim - key);
           else if (next != NULL)
-            keylen = next - key;
+            keylen = (size_t) (next - key);
           else
             keylen = strlen (key);
 
           if (val == NULL)
             vallen = 0;
           else if (next != NULL)
-            vallen = next - val;
+            vallen = (size_t) (next - val);
           else
             vallen = strlen (val);
 
           if ((keylen==2) && !memcmp (key, "xt", 2) && val && !memcmp (val, "urn:btih:", 9))
             {
               const char * hash = val + 9;
-              const int hashlen = vallen - 9;
+              const size_t hashlen = vallen - 9;
 
               if (hashlen == 40)
                 {
@@ -211,37 +208,37 @@ tr_magnetFree (tr_magnet_info * info)
 }
 
 void
-tr_magnetCreateMetainfo (const tr_magnet_info * info, tr_benc * top)
+tr_magnetCreateMetainfo (const tr_magnet_info * info, tr_variant * top)
 {
   int i;
-  tr_benc * d;
-  tr_bencInitDict (top, 4);
+  tr_variant * d;
+  tr_variantInitDict (top, 4);
 
   /* announce list */
   if (info->trackerCount == 1)
     {
-      tr_bencDictAddStr (top, "announce", info->trackers[0]);
+      tr_variantDictAddStr (top, TR_KEY_announce, info->trackers[0]);
     }
   else
     {
-      tr_benc * trackers = tr_bencDictAddList (top, "announce-list", info->trackerCount);
+      tr_variant * trackers = tr_variantDictAddList (top, TR_KEY_announce_list, info->trackerCount);
       for (i=0; i<info->trackerCount; ++i)
-        tr_bencListAddStr (tr_bencListAddList (trackers, 1), info->trackers[i]);
+        tr_variantListAddStr (tr_variantListAddList (trackers, 1), info->trackers[i]);
     }
 
   /* webseeds */
   if (info->webseedCount > 0)
     {
-      tr_benc * urls = tr_bencDictAddList (top, "url-list", info->webseedCount);
+      tr_variant * urls = tr_variantDictAddList (top, TR_KEY_url_list, info->webseedCount);
       for (i=0; i<info->webseedCount; ++i)
-        tr_bencListAddStr (urls, info->webseeds[i]);
+        tr_variantListAddStr (urls, info->webseeds[i]);
     }
 
   /* nonstandard keys */
-  d = tr_bencDictAddDict (top, "magnet-info", 2);
-  tr_bencDictAddRaw (d, "info_hash", info->hash, 20);
+  d = tr_variantDictAddDict (top, TR_KEY_magnet_info, 2);
+  tr_variantDictAddRaw (d, TR_KEY_info_hash, info->hash, 20);
   if (info->displayName != NULL)
-    tr_bencDictAddStr (d, "display-name", info->displayName);
+    tr_variantDictAddStr (d, TR_KEY_display_name, info->displayName);
 }
 
 

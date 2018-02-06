@@ -1,11 +1,8 @@
 /*
- * This file Copyright (C) Mnemosyne LLC
+ * This file Copyright (C) 2007-2014 Mnemosyne LLC
  *
- * This file is licensed by the GPL version 2. Works owned by the
- * Transmission project are granted a special exemption to clause 2 (b)
- * so that the bulk of its code can remain under the MIT license.
- * This exemption does not extend to derived works not owned by
- * the Transmission project.
+ * It may be used under the GNU GPL versions 2 or 3
+ * or any future license endorsed by Mnemosyne LLC.
  *
  * $Id$
  */
@@ -23,7 +20,7 @@
 #include "transmission.h"
 #include "session.h"
 #include "bandwidth.h"
-#include "crypto.h"
+#include "log.h"
 #include "net.h"
 #include "peer-common.h" /* MAX_BLOCK_SIZE */
 #include "peer-io.h"
@@ -32,10 +29,14 @@
 #include "utils.h"
 
 
-#ifdef WIN32
+#ifdef _WIN32
+ #undef  EAGAIN
  #define EAGAIN       WSAEWOULDBLOCK
+ #undef  EINTR
  #define EINTR        WSAEINTR
+ #undef  EINPROGRESS
  #define EINPROGRESS  WSAEINPROGRESS
+ #undef  EPIPE
  #define EPIPE        WSAECONNRESET
 #endif
 
@@ -72,10 +73,12 @@ guessPacketOverhead (size_t d)
 **/
 
 #define dbgmsg(io, ...) \
-    do { \
-        if (tr_deepLoggingIsActive ()) \
-            tr_deepLog (__FILE__, __LINE__, tr_peerIoGetAddrStr (io), __VA_ARGS__); \
-    } while (0)
+  do \
+    { \
+      if (tr_logGetDeepEnabled ()) \
+        tr_logAddDeep (__FILE__, __LINE__, tr_peerIoGetAddrStr (io), __VA_ARGS__); \
+    } \
+  while (0)
 
 /**
 ***
@@ -155,7 +158,7 @@ didWriteWrapper (tr_peerIo * io, unsigned int bytes_transferred)
         const unsigned int payload = MIN (next->length, bytes_transferred);
         /* For uTP sockets, the overhead is computed in utp_on_overhead. */
         const unsigned int overhead =
-            io->socket ? guessPacketOverhead (payload) : 0;
+            io->socket != TR_BAD_SOCKET ? guessPacketOverhead (payload) : 0;
         const uint64_t now = tr_time_msec ();
 
         tr_bandwidthUsed (&io->bandwidth, TR_UP, payload, next->isPieceData, now);
@@ -179,8 +182,8 @@ didWriteWrapper (tr_peerIo * io, unsigned int bytes_transferred)
 static void
 canReadWrapper (tr_peerIo * io)
 {
-    bool err = 0;
-    bool done = 0;
+    bool err = false;
+    bool done = false;
     tr_session * session;
 
     dbgmsg (io, "canRead");
@@ -221,15 +224,15 @@ canReadWrapper (tr_peerIo * io)
                 case READ_NOW:
                     if (evbuffer_get_length (io->inbuf))
                         continue;
-                    done = 1;
+                    done = true;
                     break;
 
                 case READ_LATER:
-                    done = 1;
+                    done = true;
                     break;
 
                 case READ_ERR:
-                    err = 1;
+                    err = true;
                     break;
             }
 
@@ -243,7 +246,7 @@ canReadWrapper (tr_peerIo * io)
 }
 
 static void
-event_read_cb (int fd, short event UNUSED, void * vio)
+event_read_cb (evutil_socket_t fd, short event UNUSED, void * vio)
 {
     int res;
     int e;
@@ -256,7 +259,7 @@ event_read_cb (int fd, short event UNUSED, void * vio)
     const unsigned int max = 256 * 1024;
 
     assert (tr_isPeerIo (io));
-    assert (io->socket >= 0);
+    assert (io->socket != TR_BAD_SOCKET);
 
     io->pendingEvents &= ~EV_READ;
 
@@ -322,7 +325,7 @@ tr_evbuffer_write (tr_peerIo * io, int fd, size_t howmuch)
 }
 
 static void
-event_write_cb (int fd, short event UNUSED, void * vio)
+event_write_cb (evutil_socket_t fd, short event UNUSED, void * vio)
 {
     int res = 0;
     int e;
@@ -333,7 +336,7 @@ event_write_cb (int fd, short event UNUSED, void * vio)
     char errstr[1024];
 
     assert (tr_isPeerIo (io));
-    assert (io->socket >= 0);
+    assert (io->socket != TR_BAD_SOCKET);
 
     io->pendingEvents &= ~EV_WRITE;
 
@@ -390,16 +393,11 @@ event_write_cb (int fd, short event UNUSED, void * vio)
 **/
 
 static void
-maybeSetCongestionAlgorithm (int socket, const char * algorithm)
+maybeSetCongestionAlgorithm (tr_socket_t   socket,
+                             const char  * algorithm)
 {
     if (algorithm && *algorithm)
-    {
-        const int rc = tr_netSetCongestionControl (socket, algorithm);
-
-        if (rc < 0)
-            tr_ninf ("Net", "Can't set congestion control algorithm '%s': %s",
-                     algorithm, tr_strerror (errno));
-    }
+        tr_netSetCongestionControl (socket, algorithm);
 }
 
 #ifdef WITH_UTP
@@ -416,7 +414,7 @@ utp_on_read (void *closure, const unsigned char *buf, size_t buflen)
     dbgmsg (io, "utp_on_read got %zu bytes", buflen);
 
     if (rc < 0) {
-        tr_nerr ("UTP", "On read evbuffer_add");
+        tr_logAddNamedError ("UTP", "On read evbuffer_add");
         return;
     }
 
@@ -435,7 +433,7 @@ utp_on_write (void *closure, unsigned char *buf, size_t buflen)
     dbgmsg (io, "utp_on_write sending %zu bytes... evbuffer_remove returned %d", buflen, rc);
     assert (rc == (int)buflen); /* if this fails, we've corrupted our bookkeeping somewhere */
     if (rc < (long)buflen) {
-        tr_nerr ("UTP", "Short write: %d < %ld", rc, (long)buflen);
+        tr_logAddNamedError ("UTP", "Short write: %d < %ld", rc, (long)buflen);
     }
 
     didWriteWrapper (io, buflen);
@@ -484,10 +482,10 @@ utp_on_state_change (void *closure, int state)
         if (io->gotError)
             io->gotError (io, BEV_EVENT_EOF, io->userData);
     } else if (state == UTP_STATE_DESTROYING) {
-        tr_nerr ("UTP", "Impossible state UTP_STATE_DESTROYING");
+        tr_logAddNamedError ("UTP", "Impossible state UTP_STATE_DESTROYING");
         return;
     } else {
-        tr_nerr ("UTP", "Unknown state %d", state);
+        tr_logAddNamedError ("UTP", "Unknown state %d", state);
     }
 }
 
@@ -506,7 +504,7 @@ utp_on_error (void *closure, int errcode)
 }
 
 static void
-utp_on_overhead (void *closure, bool send, size_t count, int type UNUSED)
+utp_on_overhead (void *closure, uint8_t send, size_t count, int type UNUSED)
 {
     tr_peerIo *io = closure;
     assert (tr_isPeerIo (io));
@@ -535,7 +533,7 @@ static void
 dummy_read (void * closure UNUSED, const unsigned char *buf UNUSED, size_t buflen UNUSED)
 {
     /* This cannot happen, as far as I'm aware. */
-    tr_nerr ("UTP", "On_read called on closed socket");
+    tr_logAddNamedError ("UTP", "On_read called on closed socket");
 
 }
 
@@ -544,7 +542,7 @@ dummy_write (void * closure UNUSED, unsigned char *buf, size_t buflen)
 {
     /* This can very well happen if we've shut down a peer connection that
        had unflushed buffers.  Complain and send zeroes. */
-    tr_ndbg ("UTP", "On_write called on closed socket");
+    tr_logAddNamedDbg ("UTP", "On_write called on closed socket");
     memset (buf, 0, buflen);
 }
 
@@ -567,7 +565,7 @@ dummy_on_error (void * closure UNUSED, int errcode UNUSED)
 }
 
 static void
-dummy_on_overhead (void *closure UNUSED, bool send UNUSED, size_t count UNUSED, int type UNUSED)
+dummy_on_overhead (void *closure UNUSED, uint8_t send UNUSED, size_t count UNUSED, int type UNUSED)
 {
     return;
 }
@@ -591,7 +589,7 @@ tr_peerIoNew (tr_session       * session,
               const uint8_t    * torrentHash,
               bool               isIncoming,
               bool               isSeed,
-              int                socket,
+              tr_socket_t        socket,
               struct UTPSocket * utp_socket)
 {
     tr_peerIo * io;
@@ -601,12 +599,12 @@ tr_peerIoNew (tr_session       * session,
     assert (tr_isBool (isIncoming));
     assert (tr_isBool (isSeed));
     assert (tr_amInEventThread (session));
-    assert ((socket < 0) == (utp_socket != NULL));
+    assert ((socket == TR_BAD_SOCKET) == (utp_socket != NULL));
 #ifndef WITH_UTP
-    assert (socket >= 0);
+    assert (socket != TR_BAD_SOCKET);
 #endif
 
-    if (socket >= 0) {
+    if (socket != TR_BAD_SOCKET) {
         tr_netSetTOS (socket, session->peerSocketTOS);
         maybeSetCongestionAlgorithm (socket, session->peer_congestion_algorithm);
     }
@@ -621,16 +619,16 @@ tr_peerIoNew (tr_session       * session,
     io->port = port;
     io->socket = socket;
     io->utp_socket = utp_socket;
-    io->isIncoming = isIncoming != 0;
+    io->isIncoming = isIncoming;
     io->timeCreated = tr_time ();
     io->inbuf = evbuffer_new ();
     io->outbuf = evbuffer_new ();
     tr_bandwidthConstruct (&io->bandwidth, session, parent);
     tr_bandwidthSetPeer (&io->bandwidth, io);
-    dbgmsg (io, "bandwidth is %p; its parent is %p", &io->bandwidth, parent);
-    dbgmsg (io, "socket is %d, utp_socket is %p", socket, utp_socket);
+    dbgmsg (io, "bandwidth is %p; its parent is %p", (void*)&io->bandwidth, (void*)parent);
+    dbgmsg (io, "socket is %"TR_PRI_SOCK", utp_socket is %p", socket, (void*)utp_socket);
 
-    if (io->socket >= 0) {
+    if (io->socket != TR_BAD_SOCKET) {
         io->event_read = event_new (session->event_base,
                                     io->socket, EV_READ, event_read_cb, io);
         io->event_write = event_new (session->event_base,
@@ -658,7 +656,7 @@ tr_peerIoNewIncoming (tr_session        * session,
                       tr_bandwidth      * parent,
                       const tr_address  * addr,
                       tr_port             port,
-                      int                 fd,
+                      tr_socket_t         fd,
                       struct UTPSocket  * utp_socket)
 {
     assert (session);
@@ -677,7 +675,7 @@ tr_peerIoNewOutgoing (tr_session        * session,
                       bool                isSeed,
                       bool                utp)
 {
-    int fd = -1;
+    tr_socket_t fd = TR_BAD_SOCKET;
     struct UTPSocket * utp_socket = NULL;
 
     assert (session);
@@ -689,10 +687,10 @@ tr_peerIoNewOutgoing (tr_session        * session,
 
     if (!utp_socket) {
         fd = tr_netOpenPeerSocket (session, addr, port, isSeed);
-        dbgmsg (NULL, "tr_netOpenPeerSocket returned fd %d", fd);
+        dbgmsg (NULL, "tr_netOpenPeerSocket returned fd %"TR_PRI_SOCK, fd);
     }
 
-    if (fd < 0 && utp_socket == NULL)
+    if (fd == TR_BAD_SOCKET && utp_socket == NULL)
         return NULL;
 
     return tr_peerIoNew (session, parent, addr, port,
@@ -710,7 +708,7 @@ event_enable (tr_peerIo * io, short event)
     assert (io->session != NULL);
     assert (io->session->events != NULL);
 
-    if (io->socket >= 0)
+    if (io->socket != TR_BAD_SOCKET)
     {
         assert (event_initialized (io->event_read));
         assert (event_initialized (io->event_write));
@@ -719,7 +717,7 @@ event_enable (tr_peerIo * io, short event)
     if ((event & EV_READ) && ! (io->pendingEvents & EV_READ))
     {
         dbgmsg (io, "enabling ready-to-read polling");
-        if (io->socket >= 0)
+        if (io->socket != TR_BAD_SOCKET)
             event_add (io->event_read, NULL);
         io->pendingEvents |= EV_READ;
     }
@@ -727,7 +725,7 @@ event_enable (tr_peerIo * io, short event)
     if ((event & EV_WRITE) && ! (io->pendingEvents & EV_WRITE))
     {
         dbgmsg (io, "enabling ready-to-write polling");
-        if (io->socket >= 0)
+        if (io->socket != TR_BAD_SOCKET)
             event_add (io->event_write, NULL);
         io->pendingEvents |= EV_WRITE;
     }
@@ -740,7 +738,7 @@ event_disable (struct tr_peerIo * io, short event)
     assert (io->session != NULL);
     assert (io->session->events != NULL);
 
-    if (io->socket >= 0)
+    if (io->socket != TR_BAD_SOCKET)
     {
         assert (event_initialized (io->event_read));
         assert (event_initialized (io->event_write));
@@ -749,7 +747,7 @@ event_disable (struct tr_peerIo * io, short event)
     if ((event & EV_READ) && (io->pendingEvents & EV_READ))
     {
         dbgmsg (io, "disabling ready-to-read polling");
-        if (io->socket >= 0)
+        if (io->socket != TR_BAD_SOCKET)
             event_del (io->event_read);
         io->pendingEvents &= ~EV_READ;
     }
@@ -757,7 +755,7 @@ event_disable (struct tr_peerIo * io, short event)
     if ((event & EV_WRITE) && (io->pendingEvents & EV_WRITE))
     {
         dbgmsg (io, "disabling ready-to-write polling");
-        if (io->socket >= 0)
+        if (io->socket != TR_BAD_SOCKET)
             event_del (io->event_write);
         io->pendingEvents &= ~EV_WRITE;
     }
@@ -787,9 +785,9 @@ tr_peerIoSetEnabled (tr_peerIo    * io,
 static void
 io_close_socket (tr_peerIo * io)
 {
-    if (io->socket >= 0) {
+    if (io->socket != TR_BAD_SOCKET) {
         tr_netClose (io->session, io->socket);
-        io->socket = -1;
+        io->socket = TR_BAD_SOCKET;
     }
 
     if (io->event_read != NULL) {
@@ -939,7 +937,7 @@ tr_peerIoReconnect (tr_peerIo * io)
     io->event_read = event_new (session->event_base, io->socket, EV_READ, event_read_cb, io);
     io->event_write = event_new (session->event_base, io->socket, EV_WRITE, event_write_cb, io);
 
-    if (io->socket >= 0)
+    if (io->socket != TR_BAD_SOCKET)
     {
         event_enable (io, pendingEvents);
         tr_netSetTOS (io->socket, session->peerSocketTOS);
@@ -971,7 +969,7 @@ tr_peerIoGetTorrentHash (tr_peerIo * io)
     return tr_cryptoGetTorrentHash (&io->crypto);
 }
 
-int
+bool
 tr_peerIoHasTorrentHash (const tr_peerIo * io)
 {
     assert (tr_isPeerIo (io));
@@ -1043,36 +1041,58 @@ tr_peerIoSetEncryption (tr_peerIo * io, tr_encryption_type encryption_type)
 ***
 **/
 
+static inline void
+processBuffer (tr_crypto        * crypto,
+               struct evbuffer  * buffer,
+               size_t             offset,
+               size_t             size,
+               void            (* callback) (tr_crypto *, size_t, const void *, void *))
+{
+    struct evbuffer_ptr pos;
+    struct evbuffer_iovec iovec;
+
+    evbuffer_ptr_set (buffer, &pos, offset, EVBUFFER_PTR_SET);
+
+    do
+    {
+        if (evbuffer_peek (buffer, size, &pos, &iovec, 1) <= 0)
+            break;
+
+        callback (crypto, iovec.iov_len, iovec.iov_base, iovec.iov_base);
+
+        assert (size >= iovec.iov_len);
+        size -= iovec.iov_len;
+    }
+    while (!evbuffer_ptr_set (buffer, &pos, iovec.iov_len, EVBUFFER_PTR_ADD));
+
+    assert (size == 0);
+}
+
 static void
 addDatatype (tr_peerIo * io, size_t byteCount, bool isPieceData)
 {
     struct tr_datatype * d;
     d = datatype_new ();
-    d->isPieceData = isPieceData != 0;
+    d->isPieceData = isPieceData;
     d->length = byteCount;
     peer_io_push_datatype (io, d);
 }
 
-static void
-maybeEncryptBuffer (tr_peerIo * io, struct evbuffer * buf)
+static inline void
+maybeEncryptBuffer (tr_peerIo       * io,
+                    struct evbuffer * buf,
+                    size_t            offset,
+                    size_t            size)
 {
     if (io->encryption_type == PEER_ENCRYPTION_RC4)
-    {
-        struct evbuffer_ptr pos;
-        struct evbuffer_iovec iovec;
-        evbuffer_ptr_set (buf, &pos, 0, EVBUFFER_PTR_SET);
-        do {
-            evbuffer_peek (buf, -1, &pos, &iovec, 1);
-            tr_cryptoEncrypt (&io->crypto, iovec.iov_len, iovec.iov_base, iovec.iov_base);
-        } while (!evbuffer_ptr_set (buf, &pos, iovec.iov_len, EVBUFFER_PTR_ADD));
-    }
+        processBuffer (&io->crypto, buf, offset, size, &tr_cryptoEncrypt);
 }
 
 void
 tr_peerIoWriteBuf (tr_peerIo * io, struct evbuffer * buf, bool isPieceData)
 {
     const size_t byteCount = evbuffer_get_length (buf);
-    maybeEncryptBuffer (io, buf);
+    maybeEncryptBuffer (io, buf, 0, byteCount);
     evbuffer_add_buffer (io->outbuf, buf);
     addDatatype (io, byteCount, isPieceData);
 }
@@ -1128,6 +1148,16 @@ evbuffer_add_uint64 (struct evbuffer * outbuf, uint64_t addme_hll)
 ****
 ***/
 
+static inline void
+maybeDecryptBuffer (tr_peerIo       * io,
+                    struct evbuffer * buf,
+                    size_t            offset,
+                    size_t            size)
+{
+    if (io->encryption_type == PEER_ENCRYPTION_RC4)
+        processBuffer (&io->crypto, buf, offset, size, &tr_cryptoDecrypt);
+}
+
 void
 tr_peerIoReadBytesToBuf (tr_peerIo * io, struct evbuffer * inbuf, struct evbuffer * outbuf, size_t byteCount)
 {
@@ -1143,17 +1173,7 @@ tr_peerIoReadBytesToBuf (tr_peerIo * io, struct evbuffer * inbuf, struct evbuffe
     evbuffer_add_buffer (outbuf, tmp);
     evbuffer_free (tmp);
 
-    /* decrypt if needed */
-    if (io->encryption_type == PEER_ENCRYPTION_RC4) {
-        struct evbuffer_ptr pos;
-        struct evbuffer_iovec iovec;
-        evbuffer_ptr_set (outbuf, &pos, old_length, EVBUFFER_PTR_SET);
-        do {
-            evbuffer_peek (outbuf, byteCount, &pos, &iovec, 1);
-            tr_cryptoDecrypt (&io->crypto, iovec.iov_len, iovec.iov_base, iovec.iov_base);
-            byteCount -= iovec.iov_len;
-        } while (!evbuffer_ptr_set (outbuf, &pos, iovec.iov_len, EVBUFFER_PTR_ADD));
-    }
+    maybeDecryptBuffer (io, outbuf, old_length, byteCount);
 }
 
 void
@@ -1174,7 +1194,7 @@ tr_peerIoReadBytes (tr_peerIo * io, struct evbuffer * inbuf, void * bytes, size_
             break;
 
         default:
-            assert (0);
+            assert (false);
     }
 }
 
@@ -1235,24 +1255,25 @@ tr_peerIoTryRead (tr_peerIo * io, size_t howmuch)
         else /* tcp peer connection */
         {
             int e;
+            char err_buf[512];
 
             EVUTIL_SET_SOCKET_ERROR (0);
             res = evbuffer_read (io->inbuf, io->socket, (int)howmuch);
             e = EVUTIL_SOCKET_ERROR ();
 
-            dbgmsg (io, "read %d from peer (%s)", res, (res==-1?tr_strerror (e):""));
+            dbgmsg (io, "read %d from peer (%s)", res,
+                    (res==-1?tr_net_strerror (err_buf, sizeof (err_buf), e):""));
 
             if (evbuffer_get_length (io->inbuf))
                 canReadWrapper (io);
 
             if ((res <= 0) && (io->gotError) && (e != EAGAIN) && (e != EINTR) && (e != EINPROGRESS))
             {
-                char errstr[512];
                 short what = BEV_EVENT_READING | BEV_EVENT_ERROR;
                 if (res == 0)
                     what |= BEV_EVENT_EOF;
                 dbgmsg (io, "tr_peerIoTryRead got an error. res is %d, what is %hd, errno is %d (%s)",
-                        res, what, e, tr_net_strerror (errstr, sizeof (errstr), e));
+                        res, what, e, tr_net_strerror (err_buf, sizeof (err_buf), e));
                 io->gotError (io, what, io->userData);
             }
         }
