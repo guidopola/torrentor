@@ -84,17 +84,9 @@ Application Torrentor :
 	FormatText.cpp
 
     : 
-    stdc++ network z be tracker localestub
+    stdc++ network z be tracker localestub crypto ssl curl event
 	
 	libtransmission.a
-	
-	#
-	# Find a better way to resolve libs.
-	#
-	/boot/common/lib/libcrypto.so
-	/boot/common/lib/libssl.so
-	/boot/common/lib/libcurl.so
-	/boot/common/lib/libevent.so
 	libnatpmp.a
 	libminiupnp.a
 	libdht.a
